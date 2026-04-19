@@ -1,0 +1,15 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Device extends Model
+{
+    protected $fillable = ['name', 'type', 'status', 'room_id'];
+
+    public function room()
+    {
+        return $this->belongsTo(Room::class);
+    }
+}
