@@ -11,11 +11,12 @@ return new class extends Migration
         Schema::create('devices', function (Blueprint $table) {
             $table->id();
             $table->foreignId('room_id')->constrained()->cascadeOnDelete();
-            $table->string('name');
-            $table->string('type')->nullable();
-            $table->integer('power_watt')->default(0);
+            $table->string('name', 100);
+            $table->string('type', 100)->nullable();
             $table->boolean('status')->default(false);
             $table->timestamps();
+
+            $table->unique(['room_id', 'name']);
         });
     }
 

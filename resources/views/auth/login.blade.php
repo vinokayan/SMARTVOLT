@@ -126,8 +126,6 @@
                                 <input type="checkbox" name="remember" value="1" {{ old('remember') ? 'checked' : '' }}>
                                 <span>Remember me</span>
                             </label>
-
-                            
                         </div>
 
                         <button type="submit" class="sv-btn sv-auth-submit" id="loginButton">

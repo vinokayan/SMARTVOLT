@@ -3,18 +3,16 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Auth;
 
 class DashboardController extends Controller
 {
     public function index()
     {
-        $dashboardData = $this->buildDashboardData();
-
         return view('dashboard', [
-            'dashboardData' => $dashboardData,
+            'dashboardData' => $this->buildDashboardData(),
         ]);
     }
 
@@ -25,13 +23,19 @@ class DashboardController extends Controller
 
     public function toggle(Request $request, $id)
     {
-        $statusColumn = collect(['status', 'is_active', 'state'])
-            ->first(fn ($column) => Schema::hasColumn('devices', $column));
+        if (!$this->tableExists('devices')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tabel devices tidak ditemukan.',
+            ], 422);
+        }
+
+        $statusColumn = $this->firstExistingColumn('devices', ['status', 'is_active', 'state']);
 
         if (!$statusColumn) {
             return response()->json([
                 'success' => false,
-                'message' => 'Kolom status device tidak ditemukan.'
+                'message' => 'Kolom status device tidak ditemukan.',
             ], 422);
         }
 
@@ -40,22 +44,18 @@ class DashboardController extends Controller
         if (!$device) {
             return response()->json([
                 'success' => false,
-                'message' => 'Device tidak ditemukan.'
+                'message' => 'Device tidak ditemukan.',
             ], 404);
         }
 
         $currentValue = $device->{$statusColumn};
+        $newValue = $this->toggleStatusValue($currentValue);
 
-        if (is_numeric($currentValue)) {
-            $newValue = ((int) $currentValue === 1) ? 0 : 1;
-        } else {
-            $normalized = strtolower((string) $currentValue);
-            $newValue = in_array($normalized, ['on', '1', 'true', 'aktif']) ? 'off' : 'on';
-        }
+        $updateData = [
+            $statusColumn => $newValue,
+        ];
 
-        $updateData = [$statusColumn => $newValue];
-
-        if (Schema::hasColumn('devices', 'updated_at')) {
+        if ($this->columnExists('devices', 'updated_at')) {
             $updateData['updated_at'] = now();
         }
 
@@ -65,106 +65,132 @@ class DashboardController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Status device berhasil diubah.'
+            'message' => 'Status device berhasil diubah.',
+            'status' => $this->normalizeStatus($newValue),
         ]);
     }
 
     private function buildDashboardData(): array
     {
-        $energyColumn = collect(['energy_kwh', 'kwh', 'energy', 'total_kwh'])
-            ->first(fn ($column) => Schema::hasColumn('energy_logs', $column));
-
-        $powerColumn = collect(['power', 'watt', 'current_power'])
-            ->first(fn ($column) => Schema::hasColumn('energy_logs', $column));
-
-        $createdAtExists = Schema::hasColumn('energy_logs', 'created_at');
-        $energyLogsIdExists = Schema::hasColumn('energy_logs', 'id');
+        $userId = Auth::id();
 
         $totalEnergyToday = 0;
         $currentPower = 0;
 
-        if ($energyColumn) {
-            $energyQuery = DB::table('energy_logs');
+        if ($this->tableExists('energy_logs')) {
+            $energyColumn = $this->firstExistingColumn('energy_logs', [
+                'energy_kwh',
+                'kwh',
+                'energy',
+                'total_kwh',
+            ]);
 
-            if ($createdAtExists) {
-                $energyQuery->whereDate('created_at', now()->toDateString());
+            $powerColumn = $this->firstExistingColumn('energy_logs', [
+                'power_watt',
+                'current_power',
+                'power',
+                'watt',
+            ]);
+
+            $dateColumn = $this->firstExistingColumn('energy_logs', [
+                'logged_at',
+                'created_at',
+            ]);
+
+            if ($energyColumn) {
+                $energyQuery = DB::table('energy_logs');
+
+                if ($dateColumn) {
+                    $energyQuery->whereDate($dateColumn, now()->toDateString());
+                }
+
+                $totalEnergyToday = (float) $energyQuery->sum($energyColumn);
             }
 
-            $totalEnergyToday = (float) $energyQuery->sum($energyColumn);
-        }
+            if ($powerColumn) {
+                $powerQuery = DB::table('energy_logs');
 
-        if ($powerColumn) {
-            $powerQuery = DB::table('energy_logs');
+                if ($dateColumn) {
+                    $powerQuery->orderByDesc($dateColumn);
+                } elseif ($this->columnExists('energy_logs', 'id')) {
+                    $powerQuery->orderByDesc('id');
+                }
 
-            if ($createdAtExists) {
-                $powerQuery->orderByDesc('created_at');
-            } elseif ($energyLogsIdExists) {
-                $powerQuery->orderByDesc('id');
+                $currentPower = (float) ($powerQuery->value($powerColumn) ?? 0);
             }
-
-            $currentPower = (float) ($powerQuery->value($powerColumn) ?? 0);
         }
 
         $rooms = collect();
-        if (Schema::hasTable('rooms')) {
+
+        if ($this->tableExists('rooms')) {
             $roomsQuery = DB::table('rooms as r');
 
-            if (Schema::hasTable('devices') && Schema::hasColumn('devices', 'room_id')) {
-                $roomsQuery->leftJoin('devices as d', 'd.room_id', '=', 'r.id')
+            if ($userId && $this->columnExists('rooms', 'user_id')) {
+                $roomsQuery->where('r.user_id', $userId);
+            }
+
+            if ($this->tableExists('devices') && $this->columnExists('devices', 'room_id')) {
+                $roomsQuery
+                    ->leftJoin('devices as d', 'd.room_id', '=', 'r.id')
                     ->select(
                         'r.id',
                         DB::raw("COALESCE(r.name, CONCAT('Room ', r.id)) as name"),
                         DB::raw('COUNT(d.id) as total_devices')
                     )
-                    ->groupBy('r.id', 'r.name')
+                    ->groupBy('r.id', 'r.slug','r.name')
                     ->orderBy('r.id');
             } else {
-                $roomsQuery->select(
-                    'r.id',
-                    DB::raw("COALESCE(r.name, CONCAT('Room ', r.id)) as name"),
-                    DB::raw('0 as total_devices')
-                )->orderBy('r.id');
+                $roomsQuery
+                    ->select(
+                        'r.id',
+                        'r.slug',
+                        DB::raw("COALESCE(r.name, CONCAT('Room ', r.id)) as name"),
+                        DB::raw('0 as total_devices')
+                    )
+                    ->orderBy('r.id');
             }
 
             $rooms = $roomsQuery->get()->map(function ($room) {
                 return [
-                    'id' => $room->id,
-                    'name' => $room->name ?? 'Unnamed Room',
-                    'total_devices' => (int) ($room->total_devices ?? 0),
-                ];
+    'id' => $room->id,
+    'name' => $room->name ?? 'Unnamed Room',
+    'slug' => $room->slug,
+    'total_devices' => (int) ($room->total_devices ?? 0),
+];
             });
         }
 
         $devices = collect();
-        if (Schema::hasTable('devices')) {
+
+        if ($this->tableExists('devices')) {
             $devicesQuery = DB::table('devices as d');
+            $selects = ['d.id'];
 
-            $selects = [
-                'd.id',
-            ];
-
-            if (Schema::hasColumn('devices', 'name')) {
+            if ($this->columnExists('devices', 'name')) {
                 $selects[] = 'd.name';
             }
 
-            if (Schema::hasColumn('devices', 'type')) {
+            if ($this->columnExists('devices', 'type')) {
                 $selects[] = 'd.type';
             }
 
-            $statusColumn = collect(['status', 'is_active', 'state'])
-                ->first(fn ($column) => Schema::hasColumn('devices', $column));
+            $statusColumn = $this->firstExistingColumn('devices', ['status', 'is_active', 'state']);
 
             if ($statusColumn) {
                 $selects[] = "d.$statusColumn as status_value";
             }
 
             if (
-                Schema::hasTable('rooms') &&
-                Schema::hasColumn('devices', 'room_id') &&
-                Schema::hasColumn('rooms', 'name')
+                $this->tableExists('rooms') &&
+                $this->columnExists('devices', 'room_id') &&
+                $this->columnExists('rooms', 'name')
             ) {
                 $devicesQuery->leftJoin('rooms as r', 'r.id', '=', 'd.room_id');
                 $selects[] = 'r.name as room_name';
+
+                if ($userId && $this->columnExists('rooms', 'user_id')) {
+                    $devicesQuery->where('r.user_id', $userId);
+                }
             }
 
             $devices = $devicesQuery
@@ -173,14 +199,13 @@ class DashboardController extends Controller
                 ->get()
                 ->map(function ($device) {
                     $rawStatus = $device->status_value ?? 'off';
-                    $normalizedStatus = $this->normalizeStatus($rawStatus);
 
                     return [
                         'id' => $device->id,
                         'name' => $device->name ?? 'Unnamed Device',
                         'type' => $device->type ?? ($device->name ?? 'device'),
                         'room_name' => $device->room_name ?? 'Tanpa Room',
-                        'status' => $normalizedStatus,
+                        'status' => $this->normalizeStatus($rawStatus),
                     ];
                 });
         }
@@ -196,9 +221,9 @@ class DashboardController extends Controller
             'rooms' => $rooms->values(),
             'devices' => $devices->values(),
             'user' => [
-    'name' => Auth::user()?->name ?? 'User',
-    'email' => Auth::user()?->email ?? '',
-],
+                'name' => Auth::user()?->name ?? 'User',
+                'email' => Auth::user()?->email ?? '',
+            ],
         ];
     }
 
@@ -206,10 +231,42 @@ class DashboardController extends Controller
     {
         $normalized = strtolower((string) $value);
 
-        if (in_array($normalized, ['1', 'true', 'on', 'aktif'])) {
+        if (in_array($normalized, ['1', 'true', 'on', 'aktif'], true)) {
             return 'on';
         }
 
         return 'off';
+    }
+
+    private function toggleStatusValue($value)
+    {
+        if (is_numeric($value)) {
+            return ((int) $value === 1) ? 0 : 1;
+        }
+
+        $normalized = strtolower((string) $value);
+
+        return in_array($normalized, ['on', '1', 'true', 'aktif'], true) ? 'off' : 'on';
+    }
+
+    private function tableExists(string $table): bool
+    {
+        return Schema::hasTable($table);
+    }
+
+    private function columnExists(string $table, string $column): bool
+    {
+        return Schema::hasColumn($table, $column);
+    }
+
+    private function firstExistingColumn(string $table, array $columns): ?string
+    {
+        foreach ($columns as $column) {
+            if ($this->columnExists($table, $column)) {
+                return $column;
+            }
+        }
+
+        return null;
     }
 }

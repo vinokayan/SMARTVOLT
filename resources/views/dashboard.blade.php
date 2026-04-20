@@ -7,6 +7,7 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="dashboard-data-url" content="{{ route('dashboard.data') }}">
     <meta name="toggle-url-template" content="{{ url('/devices/__ID__/toggle') }}">
+    <meta name="room-show-url-template" content="{{ url('/rooms/__SLUG__') }}">
     <link rel="stylesheet" href="{{ asset('assets/css/smartvolt-brand.css') }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 </head>
@@ -19,28 +20,28 @@
             </div>
             <p>Energy command center untuk monitoring, kontrol perangkat, dan insight konsumsi listrik.</p>
 
-            <nav class="sv-nav">
-                <a href="{{ route('dashboard') }}" class="active">
-                    <i class="bi bi-house-door-fill"></i>
-                    <span>Dashboard</span>
-                </a>
-                <a href="#">
-                    <i class="bi bi-grid-1x2-fill"></i>
-                    <span>Rooms</span>
-                </a>
-                <a href="#">
-                    <i class="bi bi-cpu-fill"></i>
-                    <span>Devices</span>
-                </a>
-                <a href="#">
-                    <i class="bi bi-bar-chart-fill"></i>
-                    <span>Energy History</span>
-                </a>
-                <a href="#">
-                    <i class="bi bi-gear-fill"></i>
-                    <span>Settings</span>
-                </a>
-            </nav>
+        <nav class="sv-nav">
+    <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">
+        <i class="bi bi-house-door-fill"></i>
+        <span>Dashboard</span>
+    </a>
+    <a href="{{ route('rooms') }}" class="{{ request()->routeIs('rooms*') ? 'active' : '' }}">
+        <i class="bi bi-grid-1x2-fill"></i>
+        <span>Rooms</span>
+    </a>
+    <a href="{{ route('devices') }}" class="{{ request()->routeIs('devices*') ? 'active' : '' }}">
+        <i class="bi bi-cpu-fill"></i>
+        <span>Devices</span>
+    </a>
+    <a href="{{ route('energy.history') }}" class="{{ request()->routeIs('energy.history') ? 'active' : '' }}">
+        <i class="bi bi-bar-chart-fill"></i>
+        <span>Energy History</span>
+    </a>
+    <a href="{{ route('settings') }}" class="{{ request()->routeIs('settings*') ? 'active' : '' }}">
+        <i class="bi bi-gear-fill"></i>
+        <span>Settings</span>
+    </a>
+</nav>
         </aside>
 
         <main class="sv-main">
@@ -166,119 +167,136 @@
                 </div>
             </section>
 
-            <nav class="sv-bottomnav">
-                <a href="{{ route('dashboard') }}" class="active">
-                    <i class="bi bi-house-door-fill"></i>
-                    <span>Dashboard</span>
-                </a>
-                <a href="#">
-                    <i class="bi bi-grid-1x2-fill"></i>
-                    <span>Rooms</span>
-                </a>
-                <a href="#">
-                    <i class="bi bi-bar-chart-fill"></i>
-                    <span>History</span>
-                </a>
-                <a href="#">
-                    <i class="bi bi-gear-fill"></i>
-                    <span>Settings</span>
-                </a>
-            </nav>
+           <nav class="sv-bottomnav">
+    <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">
+        <i class="bi bi-house-door-fill"></i>
+        <span>Dashboard</span>
+    </a>
+    <a href="{{ route('rooms') }}" class="{{ request()->routeIs('rooms*') ? 'active' : '' }}">
+        <i class="bi bi-grid-1x2-fill"></i>
+        <span>Rooms</span>
+    </a>
+    <a href="{{ route('devices') }}" class="{{ request()->routeIs('devices*') ? 'active' : '' }}">
+        <i class="bi bi-cpu-fill"></i>
+        <span>Devices</span>
+    </a>
+    <a href="{{ route('energy.history') }}" class="{{ request()->routeIs('energy.history') ? 'active' : '' }}">
+        <i class="bi bi-bar-chart-fill"></i>
+        <span>History</span>
+    </a>
+    <a href="{{ route('settings') }}" class="{{ request()->routeIs('settings*') ? 'active' : '' }}">
+        <i class="bi bi-gear-fill"></i>
+        <span>Settings</span>
+    </a>
+</nav>
         </main>
     </div>
 
-    <script id="dashboard-data" type="application/json">@json($dashboardData)</script>
+         <script id="dashboard-data" type="application/json">@json($dashboardData)</script>
 
-    <script>
-        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-        const dashboardDataUrl = document.querySelector('meta[name="dashboard-data-url"]').getAttribute('content');
-        const toggleUrlTemplate = document.querySelector('meta[name="toggle-url-template"]').getAttribute('content');
-        let dashboardData = JSON.parse(document.getElementById('dashboard-data').textContent);
+<script>
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    const dashboardDataUrl = document.querySelector('meta[name="dashboard-data-url"]').getAttribute('content');
+    const toggleUrlTemplate = document.querySelector('meta[name="toggle-url-template"]').getAttribute('content');
+    const roomShowUrlTemplate = document.querySelector('meta[name="room-show-url-template"]').getAttribute('content');
+    let dashboardData = JSON.parse(document.getElementById('dashboard-data').textContent);
 
-        const roomIcons = {
-            'living room': 'bi-lamp-fill',
-            'bedroom': 'bi-bed-fill',
-            'kitchen': 'bi-fork-knife',
-            'bathroom': 'bi-droplet-fill',
-            'garage': 'bi-house-gear-fill'
-        };
+    const roomIcons = {
+        'living room': 'bi-lamp-fill',
+        'bedroom': 'bi-bed-fill',
+        'kitchen': 'bi-fork-knife',
+        'bathroom': 'bi-droplet-fill',
+        'garage': 'bi-house-gear-fill'
+    };
 
-        const deviceIcons = {
-            'lamp': 'bi-lightbulb-fill',
-            'television': 'bi-tv-fill',
-            'tv': 'bi-tv-fill',
-            'air conditioner': 'bi-snow',
-            'ac': 'bi-snow',
-            'a/c': 'bi-snow',
-            'fan': 'bi-fan',
-            'refrigerator': 'bi-safe2-fill',
-            'kulkas': 'bi-safe2-fill'
-        };
+    const deviceIcons = {
+        'lamp': 'bi-lightbulb-fill',
+        'television': 'bi-tv-fill',
+        'tv': 'bi-tv-fill',
+        'air conditioner': 'bi-snow',
+        'ac': 'bi-snow',
+        'a/c': 'bi-snow',
+        'fan': 'bi-fan',
+        'refrigerator': 'bi-safe2-fill',
+        'kulkas': 'bi-safe2-fill'
+    };
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text ?? '';
-            return div.innerHTML;
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text ?? '';
+        return div.innerHTML;
+    }
+
+    function formatNumber(value, decimals = 0) {
+        return Number(value || 0).toLocaleString('id-ID', {
+            minimumFractionDigits: decimals,
+            maximumFractionDigits: decimals
+        });
+    }
+
+    function getRoomIcon(name) {
+        return roomIcons[(name || '').toLowerCase()] || 'bi-grid-1x2-fill';
+    }
+
+    function getDeviceIcon(type, name) {
+        const key = (type || name || '').toLowerCase();
+        return deviceIcons[key] || 'bi-cpu-fill';
+    }
+
+    function renderStats(data) {
+        document.getElementById('totalEnergyText').textContent = formatNumber(data.stats.total_energy_today, 1);
+        document.getElementById('currentPowerText').textContent = formatNumber(data.stats.current_power, 0);
+        document.getElementById('heroPowerText').textContent = formatNumber(data.stats.current_power, 0);
+        document.getElementById('totalRoomsText').textContent = formatNumber(data.stats.total_rooms, 0);
+        document.getElementById('activeDevicesText').textContent = formatNumber(data.stats.active_devices, 0);
+        document.getElementById('welcomeText').textContent = `Halo, ${data.user.name ?? 'User'}`;
+    }
+
+    function renderRooms(data) {
+        const container = document.getElementById('roomsContainer');
+
+        if (!data.rooms.length) {
+            container.innerHTML = '<div class="sv-empty">Belum ada room.</div>';
+            return;
         }
 
-        function formatNumber(value, decimals = 0) {
-            return Number(value || 0).toLocaleString('id-ID', {
-                minimumFractionDigits: decimals,
-                maximumFractionDigits: decimals
-            });
-        }
+        container.innerHTML = data.rooms.map(room => {
+          const roomUrl = roomShowUrlTemplate.replace('__SLUG__', room.slug);  
 
-        function getRoomIcon(name) {
-            return roomIcons[(name || '').toLowerCase()] || 'bi-grid-1x2-fill';
-        }
-
-        function getDeviceIcon(type, name) {
-            const key = (type || name || '').toLowerCase();
-            return deviceIcons[key] || 'bi-cpu-fill';
-        }
-
-        function renderStats(data) {
-            document.getElementById('totalEnergyText').textContent = formatNumber(data.stats.total_energy_today, 1);
-            document.getElementById('currentPowerText').textContent = formatNumber(data.stats.current_power, 0);
-            document.getElementById('heroPowerText').textContent = formatNumber(data.stats.current_power, 0);
-            document.getElementById('totalRoomsText').textContent = formatNumber(data.stats.total_rooms, 0);
-            document.getElementById('activeDevicesText').textContent = formatNumber(data.stats.active_devices, 0);
-            document.getElementById('welcomeText').textContent = `Halo, ${data.user.name ?? 'User'}`;
-        }
-
-        function renderRooms(data) {
-            const container = document.getElementById('roomsContainer');
-
-            if (!data.rooms.length) {
-                container.innerHTML = '<div class="sv-empty">Belum ada room.</div>';
-                return;
-            }
-
-            container.innerHTML = data.rooms.map(room => `
-                <div class="sv-room-card">
+            return `
+                <a href="${roomUrl}" class="sv-room-card" style="text-decoration:none; color:inherit;">
                     <div class="sv-card-left">
                         <div class="sv-room-icon">
                             <i class="bi ${getRoomIcon(room.name)}"></i>
                         </div>
                         <div>
                             <h4 class="sv-card-title">${escapeHtml(room.name)}</h4>
-                            <div class="sv-card-meta">${formatNumber(room.total_devices, 0)} device</div>
+                            <div class="sv-card-meta">${formatNumber(room.total_devices ?? room.devices_count ?? 0, 0)} device</div>
                         </div>
                     </div>
                     <i class="bi bi-chevron-right sv-chevron"></i>
-                </div>
-            `).join('');
+                </a>
+            `;
+        }).join('');
+    }
+
+    function isDeviceOn(status) {
+        return status === true || status === 1 || status === '1' || status === 'on';
+    }
+
+    function renderDevices(data) {
+        const container = document.getElementById('devicesContainer');
+
+        if (!data.devices.length) {
+            container.innerHTML = '<div class="sv-empty">Belum ada device.</div>';
+            return;
         }
 
-        function renderDevices(data) {
-            const container = document.getElementById('devicesContainer');
+        container.innerHTML = data.devices.map(device => {
+            const on = isDeviceOn(device.status);
+            const label = on ? 'ON' : 'OFF';
 
-            if (!data.devices.length) {
-                container.innerHTML = '<div class="sv-empty">Belum ada device.</div>';
-                return;
-            }
-
-            container.innerHTML = data.devices.map(device => `
+            return `
                 <div class="sv-device-card">
                     <div class="sv-card-left">
                         <div class="sv-device-icon">
@@ -291,63 +309,62 @@
                     </div>
 
                     <div class="sv-device-actions">
-                        <span class="sv-chip ${device.status === 'on' ? 'on' : ''}">
-                            ${device.status.toUpperCase()}
+                        <span class="sv-chip ${on ? 'on' : ''}">
+                            ${label}
                         </span>
-                        <button type="button" class="sv-btn sv-switch ${device.status === 'on' ? 'on' : ''}" onclick="toggleDevice(${device.id})"></button>
+                        <button type="button" class="sv-btn sv-switch ${on ? 'on' : ''}" onclick="toggleDevice(${device.id})"></button>
                     </div>
                 </div>
-            `).join('');
+            `;
+        }).join('');
+    }
+
+    function renderAll(data) {
+        renderStats(data);
+        renderRooms(data);
+        renderDevices(data);
+    }
+
+    async function fetchDashboardData() {
+        try {
+            const response = await fetch(dashboardDataUrl, {
+                headers: { 'Accept': 'application/json' }
+            });
+
+            if (!response.ok) return;
+
+            dashboardData = await response.json();
+            renderAll(dashboardData);
+        } catch (error) {
+            console.error('Gagal mengambil data dashboard:', error);
         }
+    }
 
-        function renderAll(data) {
-            renderStats(data);
-            renderRooms(data);
-            renderDevices(data);
-        }
+    async function toggleDevice(id) {
+        try {
+            const toggleUrl = toggleUrlTemplate.replace('__ID__', id);
 
-        async function fetchDashboardData() {
-            try {
-                const response = await fetch(dashboardDataUrl, {
-                    headers: { 'Accept': 'application/json' }
-                });
-
-                if (!response.ok) return;
-
-                dashboardData = await response.json();
-                renderAll(dashboardData);
-            } catch (error) {
-                console.error('Gagal mengambil data dashboard:', error);
-            }
-        }
-
-        async function toggleDevice(id) {
-            try {
-                const toggleUrl = toggleUrlTemplate.replace('__ID__', id);
-
-                const response = await fetch(toggleUrl, {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRF-TOKEN': csrfToken,
-                        'Accept': 'application/json',
-                        'X-Requested-With': 'XMLHttpRequest'
-                    }
-                });
-
-                if (!response.ok) return;
-
-                const result = await response.json();
-
-                if (result.success) {
-                    fetchDashboardData();
+            const response = await fetch(toggleUrl, {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': csrfToken,
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
                 }
-            } catch (error) {
-                console.error('Gagal toggle device:', error);
-            }
-        }
+            });
 
-        renderAll(dashboardData);
-        setInterval(fetchDashboardData, 5000);
-    </script>
-</body>
-</html>
+            if (!response.ok) return;
+
+            const result = await response.json();
+
+            if (result.success) {
+                fetchDashboardData();
+            }
+        } catch (error) {
+            console.error('Gagal toggle device:', error);
+        }
+    }
+
+    renderAll(dashboardData);
+    setInterval(fetchDashboardData, 5000);
+</script>
