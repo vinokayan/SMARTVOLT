@@ -137,13 +137,12 @@ class DashboardController extends Controller
                         DB::raw("COALESCE(r.name, CONCAT('Room ', r.id)) as name"),
                         DB::raw('COUNT(d.id) as total_devices')
                     )
-                    ->groupBy('r.id', 'r.slug','r.name')
+                    ->groupBy('r.id', 'r.name')
                     ->orderBy('r.id');
             } else {
                 $roomsQuery
                     ->select(
                         'r.id',
-                        'r.slug',
                         DB::raw("COALESCE(r.name, CONCAT('Room ', r.id)) as name"),
                         DB::raw('0 as total_devices')
                     )
@@ -152,11 +151,10 @@ class DashboardController extends Controller
 
             $rooms = $roomsQuery->get()->map(function ($room) {
                 return [
-    'id' => $room->id,
-    'name' => $room->name ?? 'Unnamed Room',
-    'slug' => $room->slug,
-    'total_devices' => (int) ($room->total_devices ?? 0),
-];
+                    'id' => $room->id,
+                    'name' => $room->name ?? 'Unnamed Room',
+                    'total_devices' => (int) ($room->total_devices ?? 0),
+                ];
             });
         }
 

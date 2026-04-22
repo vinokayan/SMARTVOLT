@@ -25,6 +25,14 @@
             background: rgba(9, 20, 40, 0.45);
             border: 1px solid rgba(255,255,255,0.06);
             box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+            transition: 0.2s ease;
+        }
+
+        .sv-room-manage-card.active-room {
+            border-color: rgba(90, 198, 255, 0.32);
+            box-shadow:
+                inset 0 1px 0 rgba(255,255,255,0.04),
+                0 0 0 1px rgba(90, 198, 255, 0.08);
         }
 
         .sv-room-manage-top {
@@ -39,6 +47,19 @@
             align-items: center;
             gap: 14px;
             min-width: 0;
+        }
+
+        .sv-room-clickable {
+            cursor: pointer;
+            transition: 0.2s ease;
+            border-radius: 18px;
+            padding: 6px;
+            margin: -6px;
+        }
+
+        .sv-room-clickable:hover {
+            transform: translateY(-1px);
+            opacity: 0.96;
         }
 
         .sv-room-manage-icon {
@@ -103,6 +124,18 @@
             background: rgba(255, 96, 96, 0.14);
             color: #ffd5d5;
             border: 1px solid rgba(255, 96, 96, 0.18);
+        }
+
+        .sv-mini-btn.toggle-on {
+            background: rgba(73, 212, 155, 0.16);
+            color: #c8ffe7;
+            border: 1px solid rgba(73, 212, 155, 0.20);
+        }
+
+        .sv-mini-btn.toggle-off {
+            background: rgba(255, 214, 102, 0.14);
+            color: #ffe8ad;
+            border: 1px solid rgba(255, 214, 102, 0.20);
         }
 
         .sv-inline-edit {
@@ -229,20 +262,6 @@
             gap: 14px;
         }
 
-        .sv-room-highlight .sv-card-title-big {
-            font-size: 42px;
-            font-weight: 900;
-            line-height: 1;
-            letter-spacing: -0.03em;
-            color: #f3f8ff;
-        }
-
-        .sv-room-highlight .sv-card-sub {
-            color: #9fb3cf;
-            font-size: 15px;
-            margin-top: 8px;
-        }
-
         .sv-room-highlight-icon {
             width: 86px;
             height: 86px;
@@ -253,6 +272,71 @@
             font-size: 34px;
             color: #dff8ff;
             background: linear-gradient(135deg, rgba(72, 194, 255, 0.16), rgba(84, 255, 208, 0.14));
+        }
+
+        .sv-chip-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+        }
+
+        .sv-chip-status.on {
+            background: rgba(73, 212, 155, 0.16);
+            color: #c8ffe7;
+            border: 1px solid rgba(73, 212, 155, 0.20);
+        }
+
+        .sv-chip-status.off {
+            background: rgba(255, 97, 97, 0.14);
+            color: #ffd7d7;
+            border: 1px solid rgba(255, 97, 97, 0.18);
+        }
+
+        .sv-device-box {
+            padding: 14px 16px;
+            margin-bottom: 12px;
+            border-radius: 18px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .sv-device-box-top {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: flex-start;
+        }
+
+        .sv-device-box-title {
+            font-size: 18px;
+            font-weight: 800;
+            color: #edf5ff;
+            margin: 0;
+        }
+
+        .sv-device-box-meta {
+            font-size: 14px;
+            color: #a9bad5;
+            margin-top: 4px;
+        }
+
+        .sv-device-box-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .sv-room-section-title {
+            margin: 0 0 12px;
+            color: #edf5ff;
+            font-size: 18px;
+            font-weight: 800;
         }
 
         @media (max-width: 1080px) {
@@ -375,7 +459,6 @@
 
                             <div class="sv-energy-panel">
                                 <h3>Current Rooms Snapshot</h3>
-
                                 <div class="sv-pulse">
                                     <span></span><span></span><span></span><span></span><span></span><span></span>
                                 </div>
@@ -416,16 +499,18 @@
                         @else
                             <div class="sv-room-list">
                                 @foreach($rooms as $room)
-                                    <div class="sv-room-manage-card">
+                                    <div class="sv-room-manage-card" id="room-card-{{ $room->id }}">
                                         <div class="sv-room-manage-top">
-                                            <div class="sv-room-manage-left">
+                                            <div
+                                                class="sv-room-manage-left sv-room-clickable"
+                                                onclick="toggleRoomDevices('{{ $room->id }}')"
+                                                title="Klik untuk melihat dan mengelola device"
+                                            >
                                                 <div class="sv-room-manage-icon">
                                                     <i class="bi bi-grid-1x2-fill"></i>
                                                 </div>
                                                 <div>
-                                                   <a href="{{ route('rooms.show', $room) }}" style="text-decoration:none; color:inherit;">
-    <h4 class="sv-room-manage-title">{{ $room->name }}</h4>
-</a>
+                                                    <h4 class="sv-room-manage-title">{{ $room->name }}</h4>
                                                     <div class="sv-room-manage-meta">
                                                         {{ $room->devices_count ?? 0 }} device terhubung
                                                     </div>
@@ -433,13 +518,7 @@
                                             </div>
 
                                             <div class="sv-room-manage-actions">
-                                                <button
-                                                    type="button"
-                                                    class="sv-mini-btn edit"
-                                                    onclick="toggleEditForm('edit-room-{{ $room->id }}')">
-                                                    <i class="bi bi-pencil-square"></i>
-                                                    Edit
-                                                </button>
+                                               
 
                                                 <form action="{{ route('rooms.destroy', $room->id) }}" method="POST" onsubmit="return confirm('Hapus room ini?')">
                                                     @csrf
@@ -449,6 +528,127 @@
                                                         Hapus
                                                     </button>
                                                 </form>
+                                            </div>
+                                        </div>
+
+                                        <div id="manage-devices-{{ $room->id }}" class="sv-inline-edit">
+                                            <div style="margin-bottom: 20px;">
+                                                <h4 class="sv-room-section-title">Tambah Device ke {{ $room->name }}</h4>
+
+                                                <form action="{{ route('devices.store') }}" method="POST" class="sv-form-stack">
+                                                    @csrf
+                                                    <input type="hidden" name="room_id" value="{{ $room->id }}">
+
+                                                    <div class="sv-form-group">
+                                                        <label class="sv-form-label">Nama Device</label>
+                                                        <input
+                                                            type="text"
+                                                            name="name"
+                                                            class="sv-form-input"
+                                                            placeholder="Contoh: Lampu Utama"
+                                                            required
+                                                        >
+                                                    </div>
+
+                                                    
+                                                    <button type="submit" class="sv-primary-btn">
+                                                        <i class="bi bi-plus-circle-fill"></i>
+                                                        Tambah Device
+                                                    </button>
+                                                </form>
+                                            </div>
+
+                                            <div style="border-top:1px solid rgba(255,255,255,0.06); padding-top:16px;">
+                                                <h4 class="sv-room-section-title">Daftar Device</h4>
+
+                                                @forelse($room->devices as $device)
+                                                    <div class="sv-device-box">
+                                                        <div class="sv-device-box-top">
+                                                            <div>
+                                                                <h5 class="sv-device-box-title">{{ $device->name }}</h5>
+                                                                <div class="sv-device-box-meta">{{ $device->type ?: 'device' }}</div>
+                                                                <div style="margin-top:8px;">
+                                                                    <span class="sv-chip-status {{ $device->status ? 'on' : 'off' }}">
+                                                                        {{ $device->status ? 'ON' : 'OFF' }}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+
+                                                            <div class="sv-device-box-actions">
+                                                                <form action="{{ route('devices.toggle', $device->id) }}" method="POST">
+                                                                    @csrf
+                                                                    <button type="submit" class="sv-mini-btn {{ $device->status ? 'toggle-off' : 'toggle-on' }}">
+                                                                        <i class="bi {{ $device->status ? 'bi-power' : 'bi-lightning-charge-fill' }}"></i>
+                                                                        {{ $device->status ? 'Matikan' : 'Nyalakan' }}
+                                                                    </button>
+                                                                </form>
+
+                                                                <button
+                                                                    type="button"
+                                                                    class="sv-mini-btn edit"
+                                                                    onclick="toggleEditForm('edit-device-{{ $device->id }}')">
+                                                                    <i class="bi bi-pencil-square"></i>
+                                                                    Edit
+                                                                </button>
+
+                                                                <form action="{{ route('devices.destroy', $device->id) }}" method="POST" onsubmit="return confirm('Hapus device ini?')">
+                                                                    @csrf
+                                                                    @method('DELETE')
+                                                                    <button type="submit" class="sv-mini-btn delete">
+                                                                        <i class="bi bi-trash-fill"></i>
+                                                                        Hapus
+                                                                    </button>
+                                                                </form>
+                                                            </div>
+                                                        </div>
+
+                                                        <div id="edit-device-{{ $device->id }}" class="sv-inline-edit" style="margin-top:14px;">
+                                                            <form action="{{ route('devices.update', $device->id) }}" method="POST" class="sv-form-stack">
+                                                                @csrf
+                                                                @method('PUT')
+
+                                                                <div class="sv-form-group">
+                                                                    <label class="sv-form-label">Nama Device</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        name="name"
+                                                                        class="sv-form-input"
+                                                                        value="{{ $device->name }}"
+                                                                        required
+                                                                    >
+                                                                </div>
+
+                                                                <div class="sv-form-group">
+                                                                    <label class="sv-form-label">Tipe Device</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        name="type"
+                                                                        class="sv-form-input"
+                                                                        value="{{ $device->type }}"
+                                                                        placeholder="Contoh: lamp, fan, tv"
+                                                                    >
+                                                                </div>
+
+                                                                <div class="sv-form-actions">
+                                                                    <button type="submit" class="sv-primary-btn">
+                                                                        <i class="bi bi-check2-circle"></i>
+                                                                        Simpan Perubahan
+                                                                    </button>
+
+                                                                    <button
+                                                                        type="button"
+                                                                        class="sv-secondary-btn"
+                                                                        onclick="toggleEditForm('edit-device-{{ $device->id }}')">
+                                                                        <i class="bi bi-x-circle"></i>
+                                                                        Tutup
+                                                                    </button>
+                                                                </div>
+                                                            </form>
+                                                        </div>
+                                                    </div>
+                                                @empty
+                                                    <div class="sv-empty">Belum ada device di room ini.</div>
+                                                @endforelse
                                             </div>
                                         </div>
 
@@ -564,6 +764,30 @@
             const form = document.getElementById(id);
             if (form) {
                 form.classList.toggle('show');
+            }
+        }
+
+        function toggleRoomDevices(roomId) {
+            const target = document.getElementById('manage-devices-' + roomId);
+            const targetCard = document.getElementById('room-card-' + roomId);
+
+            if (!target || !targetCard) return;
+
+            const allPanels = document.querySelectorAll('[id^="manage-devices-"]');
+            const allCards = document.querySelectorAll('[id^="room-card-"]');
+
+            const isOpen = target.classList.contains('show');
+
+            allPanels.forEach(panel => panel.classList.remove('show'));
+            allCards.forEach(card => card.classList.remove('active-room'));
+
+            if (!isOpen) {
+                target.classList.add('show');
+                targetCard.classList.add('active-room');
+
+                setTimeout(() => {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }, 120);
             }
         }
     </script>

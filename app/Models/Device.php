@@ -24,9 +24,4 @@ class Device extends Model
     {
         return $this->belongsTo(Room::class);
     }
-
-    public function energyLogs()
-    {
-        return $this->hasMany(EnergyLog::class);
-    }
 }

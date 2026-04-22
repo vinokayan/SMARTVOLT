@@ -5,28 +5,48 @@ namespace App\Http\Controllers;
 use App\Models\Device;
 use App\Models\Room;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 
 class DeviceController extends Controller
 {
-    public function storeByRoom(Request $request, Room $room)
+    public function index()
     {
-        $this->authorizeRoom($room);
+        $devices = Device::with('room')
+            ->whereHas('room', function ($query) {
+                $query->where('user_id', Auth::id());
+            })
+            ->latest()
+            ->get();
 
+        return view('devices', compact('devices'));
+    }
+
+    public function store(Request $request)
+    {
         $validated = $request->validate([
+            'room_id' => ['required', 'exists:rooms,id'],
             'name' => [
                 'required',
                 'string',
                 'max:100',
-                Rule::unique('devices')->where(function ($query) use ($room) {
-                    return $query->where('room_id', $room->id);
+                Rule::unique('devices')->where(function ($query) use ($request) {
+                    return $query->where('room_id', $request->room_id);
                 }),
             ],
             'type' => ['nullable', 'string', 'max:100'],
         ], [
+            'room_id.required' => 'Room wajib dipilih.',
+            'room_id.exists' => 'Room tidak valid.',
             'name.required' => 'Nama device wajib diisi.',
             'name.unique' => 'Nama device sudah ada di room ini.',
         ]);
+
+        $room = Room::findOrFail($validated['room_id']);
+
+        if ($room->user_id !== Auth::id()) {
+            abort(403, 'Anda tidak punya akses ke room ini.');
+        }
 
         Device::create([
             'room_id' => $room->id,
@@ -35,14 +55,16 @@ class DeviceController extends Controller
             'status' => false,
         ]);
 
-        return redirect()->route('rooms.show', $room->id)
-            ->with('status', 'Device berhasil ditambahkan ke room.');
+        return back()->with('status', 'Device berhasil ditambahkan.');
     }
 
-    public function updateByRoom(Request $request, Room $room, Device $device)
+    public function update(Request $request, Device $device)
     {
-        $this->authorizeRoom($room);
-        $this->authorizeDeviceInRoom($room, $device);
+        $device->load('room');
+
+        if (!$device->room || $device->room->user_id !== Auth::id()) {
+            abort(403, 'Anda tidak punya akses ke device ini.');
+        }
 
         $validated = $request->validate([
             'name' => [
@@ -50,8 +72,8 @@ class DeviceController extends Controller
                 'string',
                 'max:100',
                 Rule::unique('devices')
-                    ->where(function ($query) use ($room) {
-                        return $query->where('room_id', $room->id);
+                    ->where(function ($query) use ($device) {
+                        return $query->where('room_id', $device->room_id);
                     })
                     ->ignore($device->id),
             ],
@@ -66,45 +88,41 @@ class DeviceController extends Controller
             'type' => $validated['type'] ?? null,
         ]);
 
-        return redirect()->route('rooms.show', $room->id)
-            ->with('status', 'Device berhasil diperbarui.');
+        return back()->with('status', 'Device berhasil diperbarui.');
     }
 
-    public function destroyByRoom(Room $room, Device $device)
+    public function destroy(Device $device)
     {
-        $this->authorizeRoom($room);
-        $this->authorizeDeviceInRoom($room, $device);
+        $device->load('room');
+
+        if (!$device->room || $device->room->user_id !== Auth::id()) {
+            abort(403, 'Anda tidak punya akses ke device ini.');
+        }
 
         $device->delete();
 
-        return redirect()->route('rooms.show', $room->id)
-            ->with('status', 'Device berhasil dihapus.');
+        return back()->with('status', 'Device berhasil dihapus.');
     }
 
-    public function toggleByRoom(Room $room, Device $device)
+    public function toggle(Device $device)
     {
-        $this->authorizeRoom($room);
-        $this->authorizeDeviceInRoom($room, $device);
+        $device->load('room');
+
+        if (!$device->room || $device->room->user_id !== Auth::id()) {
+            abort(403, 'Anda tidak punya akses ke device ini.');
+        }
 
         $device->update([
             'status' => !$device->status,
         ]);
 
-        return redirect()->route('rooms.show', $room->id)
-            ->with('status', 'Status device berhasil diubah.');
-    }
-
-    private function authorizeRoom(Room $room): void
-    {
-        if ($room->user_id !== auth()->id()) {
-            abort(403, 'Anda tidak punya akses ke room ini.');
+        if (request()->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'status' => $device->status ? 'on' : 'off',
+            ]);
         }
-    }
 
-    private function authorizeDeviceInRoom(Room $room, Device $device): void
-    {
-        if ($device->room_id !== $room->id) {
-            abort(404, 'Device tidak ditemukan di room ini.');
-        }
+        return back()->with('status', 'Status device berhasil diubah.');
     }
 }

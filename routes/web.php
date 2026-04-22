@@ -10,11 +10,6 @@ use App\Http\Controllers\SettingsController;
 
 Route::redirect('/', '/login');
 
-// Route tes ringan
-Route::get('/tes-cepat', function () {
-    return 'OK';
-});
-
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLoginForm'])->name('login');
     Route::post('/login', [AuthController::class, 'login'])->name('login.process');
@@ -29,11 +24,6 @@ Route::middleware('guest')->group(function () {
 });
 
 Route::middleware('auth')->group(function () {
-    Route::get('/after-login-test', function () {
-        return 'LOGIN BERHASIL';
-    Route::get('/rooms/{room}', [RoomController::class, 'show'])->name('rooms.show');
-    })->name('after.login.test');
-
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/dashboard/data', [DashboardController::class, 'data'])->name('dashboard.data');
 

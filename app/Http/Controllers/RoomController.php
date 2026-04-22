@@ -5,32 +5,20 @@ namespace App\Http\Controllers;
 use App\Models\Room;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Str;
 
 class RoomController extends Controller
 {
     public function index()
     {
         $rooms = Room::withCount('devices')
+            ->with(['devices' => function ($query) {
+                $query->latest();
+            }])
             ->where('user_id', Auth::id())
             ->latest()
             ->get();
 
         return view('rooms', compact('rooms'));
-    }
-
-    public function show(Room $room)
-    {
-        if ($room->user_id !== Auth::id()) {
-            abort(403, 'Anda tidak punya akses ke room ini.');
-        }
-
-        $room->load('devices');
-
-        return view('rooms-show', [
-            'room' => $room,
-            'devices' => $room->devices()->latest()->get(),
-        ]);
     }
 
     public function store(Request $request)
@@ -45,7 +33,6 @@ class RoomController extends Controller
         Room::create([
             'user_id' => Auth::id(),
             'name' => $validated['name'],
-            'slug' => $this->makeUniqueSlug($validated['name']),
             'status' => true,
         ]);
 
@@ -64,7 +51,6 @@ class RoomController extends Controller
 
         $room->update([
             'name' => $validated['name'],
-            'slug' => $this->makeUniqueSlug($validated['name'], $room->id),
         ]);
 
         return redirect()->route('rooms')->with('status', 'Room berhasil diperbarui.');
@@ -85,28 +71,5 @@ class RoomController extends Controller
         $room->delete();
 
         return redirect()->route('rooms')->with('status', 'Room berhasil dihapus.');
-    }
-
-    private function makeUniqueSlug(string $name, ?int $ignoreId = null): string
-    {
-        $baseSlug = Str::slug($name);
-
-        if ($baseSlug === '') {
-            $baseSlug = 'room';
-        }
-
-        $slug = $baseSlug;
-        $counter = 2;
-
-        while (
-            Room::where('slug', $slug)
-                ->when($ignoreId, fn ($query) => $query->where('id', '!=', $ignoreId))
-                ->exists()
-        ) {
-            $slug = $baseSlug . '-' . $counter;
-            $counter++;
-        }
-
-        return $slug;
     }
 }

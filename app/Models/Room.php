@@ -12,7 +12,6 @@ class Room extends Model
     protected $fillable = [
         'user_id',
         'name',
-        'slug',
         'status',
     ];
 
@@ -24,10 +23,5 @@ class Room extends Model
     public function devices()
     {
         return $this->hasMany(Device::class);
-    }
-
-    public function getRouteKeyName(): string
-    {
-        return 'slug';
     }
 }
