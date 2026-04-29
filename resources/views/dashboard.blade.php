@@ -6,10 +6,25 @@
     <title>Dashboard - SmartVolt</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="dashboard-data-url" content="{{ route('dashboard.data') }}">
-    <meta name="toggle-url-template" content="{{ url('/devices/__ID__/toggle') }}">
 
     <link rel="stylesheet" href="{{ asset('assets/css/smartvolt-brand.css') }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        .sv-chart-wrap {
+            min-height: 320px;
+            border: 1px dashed rgba(255,255,255,0.10);
+            border-radius: 18px;
+            padding: 16px;
+            background: rgba(7, 18, 38, 0.35);
+        }
+
+        .sv-chart-canvas {
+            width: 100% !important;
+            height: 280px !important;
+        }
+    </style>
 </head>
 <body class="sv-dashboard-body">
     <div class="sv-app">
@@ -18,25 +33,24 @@
                 <div class="icon"><i class="bi bi-lightning-charge-fill"></i></div>
                 <span>SmartVolt</span>
             </div>
-            <p>Energy command center untuk monitoring, kontrol perangkat, dan insight konsumsi listrik.</p>
+            <p>Monitoring energi rumah tangga berbasis IoT.</p>
 
             <nav class="sv-nav">
                 <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">
                     <i class="bi bi-house-door-fill"></i>
                     <span>Dashboard</span>
                 </a>
+
                 <a href="{{ route('rooms') }}" class="{{ request()->routeIs('rooms*') ? 'active' : '' }}">
                     <i class="bi bi-grid-1x2-fill"></i>
                     <span>Rooms</span>
                 </a>
-                <a href="{{ route('devices') }}" class="{{ request()->routeIs('devices*') ? 'active' : '' }}">
-                    <i class="bi bi-cpu-fill"></i>
-                    <span>Devices</span>
-                </a>
+
                 <a href="{{ route('energy.history') }}" class="{{ request()->routeIs('energy.history') ? 'active' : '' }}">
                     <i class="bi bi-bar-chart-fill"></i>
                     <span>Energy History</span>
                 </a>
+
                 <a href="{{ route('settings') }}" class="{{ request()->routeIs('settings*') ? 'active' : '' }}">
                     <i class="bi bi-gear-fill"></i>
                     <span>Settings</span>
@@ -48,29 +62,9 @@
             <header class="sv-topbar">
                 <div class="sv-topbar-inner">
                     <div class="sv-topbar-left">
-                        <button class="sv-btn sv-iconbtn" type="button">
-                            <i class="bi bi-list"></i>
-                        </button>
                         <div>
-                            <h1 class="sv-page-title">SmartVolt Control Hub</h1>
+                            <h1 class="sv-page-title">Dashboard</h1>
                             <p class="sv-page-sub" id="welcomeText">Halo, {{ $dashboardData['user']['name'] ?? 'User' }}</p>
-                        </div>
-                    </div>
-
-                    <div class="sv-topbar-right">
-                        <div class="sv-action-cluster">
-                            <button class="sv-btn sv-notify-btn" type="button" aria-label="Notifications">
-                                <i class="bi bi-bell"></i>
-                                <span class="sv-notify-dot"></span>
-                            </button>
-
-                            <form action="{{ route('logout') }}" method="POST" class="sv-logout-form">
-                                @csrf
-                                <button type="submit" class="sv-btn sv-logout-btn">
-                                    <i class="bi bi-box-arrow-right"></i>
-                                    <span>Logout</span>
-                                </button>
-                            </form>
                         </div>
                     </div>
                 </div>
@@ -78,36 +72,22 @@
 
             <section class="sv-shell">
                 <div class="sv-hero">
-                    <div class="sv-hero-card sv-glass">
-                        <div class="sv-hero-grid">
-                            <div>
-                                <div class="sv-live-chip">
-                                    <span class="sv-live-dot"></span>
-                                    Live energy monitoring
-                                </div>
-
-                                <h1>Monitor, control, and orchestrate your energy flow.</h1>
-                                <p>
-                                    Dashboard SmartVolt dirancang agar energi, room, dan device terasa seperti satu sistem hidup yang responsif, bukan daftar tabel biasa.
-                                </p>
+                    <div class="sv-hero-card sv-glass" style="padding: 28px;">
+                        <div>
+                            <div class="sv-live-chip">
+                                <span class="sv-live-dot"></span>
+                                Smart energy monitoring
                             </div>
 
-                            <div class="sv-energy-panel">
-                                <h3>Current Power Snapshot</h3>
-                                <div class="sv-energy-reading">
-                                    <strong id="heroPowerText">{{ number_format((float) ($dashboardData['stats']['current_power'] ?? 0), 0) }}</strong>
-                                    <span>Watt</span>
-                                </div>
-
-                                <div class="sv-pulse">
-                                    <span></span><span></span><span></span><span></span><span></span><span></span>
-                                </div>
-                            </div>
+                            <h1 style="margin-bottom: 10px;">Pantau energi rumah dengan lebih sederhana.</h1>
+                            <p style="margin: 0; color: #b9cae3;">
+                                Dashboard ini menampilkan ringkasan energi, grafik konsumsi, dan kondisi room secara singkat.
+                            </p>
                         </div>
                     </div>
                 </div>
 
-                <div class="sv-stats">
+                <div class="sv-stats" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
                     <div class="sv-stat-card sv-glass energy">
                         <div class="label">Total Energy Today</div>
                         <div class="value">
@@ -126,14 +106,6 @@
                         </div>
                     </div>
 
-                    <div class="sv-stat-card sv-glass rooms">
-                        <div class="label">Rooms</div>
-                        <div class="value">
-                            <i class="bi bi-grid-1x2-fill"></i>
-                            <span id="totalRoomsText">0</span>
-                        </div>
-                    </div>
-
                     <div class="sv-stat-card sv-glass active">
                         <div class="label">Active Devices</div>
                         <div class="value">
@@ -143,25 +115,29 @@
                     </div>
                 </div>
 
-                <div class="sv-panels">
+                <div class="sv-panels" style="grid-template-columns: 1.4fr 0.9fr;">
                     <div class="sv-panel sv-glass">
                         <div class="sv-panel-head">
                             <div>
-                                <h3>Rooms</h3>
-                                <div class="sv-panel-sub">Susunan ruangan yang aktif di SmartVolt</div>
+                                <h3>Grafik Energi</h3>
+                                <div class="sv-panel-sub">Grafik monitoring energi dari sistem Anda</div>
                             </div>
                         </div>
-                        <div id="roomsContainer" class="sv-rooms-grid"></div>
+
+                        <div class="sv-chart-wrap">
+                            <canvas id="energyChart" class="sv-chart-canvas"></canvas>
+                        </div>
                     </div>
 
                     <div class="sv-panel sv-glass">
                         <div class="sv-panel-head">
                             <div>
-                                <h3>Devices</h3>
-                                <div class="sv-panel-sub">Kontrol cepat untuk perangkat yang terhubung</div>
+                                <h3>Rooms</h3>
+                                <div class="sv-panel-sub">Ringkasan jumlah device per room</div>
                             </div>
                         </div>
-                        <div id="devicesContainer" class="sv-devices-grid"></div>
+
+                        <div id="roomsContainer" class="sv-rooms-grid"></div>
                     </div>
                 </div>
             </section>
@@ -171,18 +147,17 @@
                     <i class="bi bi-house-door-fill"></i>
                     <span>Dashboard</span>
                 </a>
+
                 <a href="{{ route('rooms') }}" class="{{ request()->routeIs('rooms*') ? 'active' : '' }}">
                     <i class="bi bi-grid-1x2-fill"></i>
                     <span>Rooms</span>
                 </a>
-                <a href="{{ route('devices') }}" class="{{ request()->routeIs('devices*') ? 'active' : '' }}">
-                    <i class="bi bi-cpu-fill"></i>
-                    <span>Devices</span>
-                </a>
+
                 <a href="{{ route('energy.history') }}" class="{{ request()->routeIs('energy.history') ? 'active' : '' }}">
                     <i class="bi bi-bar-chart-fill"></i>
                     <span>History</span>
                 </a>
+
                 <a href="{{ route('settings') }}" class="{{ request()->routeIs('settings*') ? 'active' : '' }}">
                     <i class="bi bi-gear-fill"></i>
                     <span>Settings</span>
@@ -194,10 +169,7 @@
     <script id="dashboard-data" type="application/json">@json($dashboardData)</script>
 
     <script>
-        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
         const dashboardDataUrl = document.querySelector('meta[name="dashboard-data-url"]').getAttribute('content');
-        const toggleUrlTemplate = document.querySelector('meta[name="toggle-url-template"]').getAttribute('content');
-        const roomShowUrlTemplate = document.querySelector('meta[name="room-show-url-template"]').getAttribute('content');
         let dashboardData = JSON.parse(document.getElementById('dashboard-data').textContent);
 
         const roomIcons = {
@@ -205,20 +177,14 @@
             'bedroom': 'bi-bed-fill',
             'kitchen': 'bi-fork-knife',
             'bathroom': 'bi-droplet-fill',
-            'garage': 'bi-house-gear-fill'
+            'garage': 'bi-house-gear-fill',
+            'kamar': 'bi-bed-fill',
+            'ruang tamu': 'bi-tv-fill',
+            'dapur': 'bi-fork-knife',
+            'kamar mandi': 'bi-droplet-fill'
         };
 
-        const deviceIcons = {
-            'lamp': 'bi-lightbulb-fill',
-            'television': 'bi-tv-fill',
-            'tv': 'bi-tv-fill',
-            'air conditioner': 'bi-snow',
-            'ac': 'bi-snow',
-            'a/c': 'bi-snow',
-            'fan': 'bi-fan',
-            'refrigerator': 'bi-safe2-fill',
-            'kulkas': 'bi-safe2-fill'
-        };
+        let energyChartInstance = null;
 
         function escapeHtml(text) {
             const div = document.createElement('div');
@@ -237,91 +203,114 @@
             return roomIcons[(name || '').toLowerCase()] || 'bi-grid-1x2-fill';
         }
 
-        function getDeviceIcon(type, name) {
-            const key = (type || name || '').toLowerCase();
-            return deviceIcons[key] || 'bi-cpu-fill';
-        }
-
         function renderStats(data) {
-            document.getElementById('totalEnergyText').textContent = formatNumber(data.stats.total_energy_today, 1);
-            document.getElementById('currentPowerText').textContent = formatNumber(data.stats.current_power, 0);
-            document.getElementById('heroPowerText').textContent = formatNumber(data.stats.current_power, 0);
-            document.getElementById('totalRoomsText').textContent = formatNumber(data.stats.total_rooms, 0);
-            document.getElementById('activeDevicesText').textContent = formatNumber(data.stats.active_devices, 0);
-            document.getElementById('welcomeText').textContent = `Halo, ${data.user.name ?? 'User'}`;
+            document.getElementById('totalEnergyText').textContent = formatNumber(data.stats?.total_energy_today, 1);
+            document.getElementById('currentPowerText').textContent = formatNumber(data.stats?.current_power, 0);
+            document.getElementById('activeDevicesText').textContent = formatNumber(data.stats?.active_devices, 0);
+            document.getElementById('welcomeText').textContent = `Halo, ${data.user?.name ?? 'User'}`;
         }
 
         function renderRooms(data) {
             const container = document.getElementById('roomsContainer');
 
-            if (!data.rooms.length) {
+            if (!data.rooms || !data.rooms.length) {
                 container.innerHTML = '<div class="sv-empty">Belum ada room.</div>';
                 return;
             }
 
             container.innerHTML = data.rooms.map(room => {
-                const roomUrl = roomShowUrlTemplate.replace('__ID__', room.id);
-
                 return `
-                    <a href="${roomUrl}" class="sv-room-card" style="text-decoration:none; color:inherit;">
+                    <div class="sv-room-card">
                         <div class="sv-card-left">
                             <div class="sv-room-icon">
                                 <i class="bi ${getRoomIcon(room.name)}"></i>
                             </div>
                             <div>
                                 <h4 class="sv-card-title">${escapeHtml(room.name)}</h4>
-                                <div class="sv-card-meta">${formatNumber(room.total_devices ?? room.devices_count ?? 0, 0)} device</div>
+                                <div class="sv-card-meta">${formatNumber(room.total_devices ?? 0, 0)} device</div>
                             </div>
-                        </div>
-                        <i class="bi bi-chevron-right sv-chevron"></i>
-                    </a>
-                `;
-            }).join('');
-        }
-
-        function isDeviceOn(status) {
-            return status === true || status === 1 || status === '1' || status === 'on';
-        }
-
-        function renderDevices(data) {
-            const container = document.getElementById('devicesContainer');
-
-            if (!data.devices.length) {
-                container.innerHTML = '<div class="sv-empty">Belum ada device.</div>';
-                return;
-            }
-
-            container.innerHTML = data.devices.map(device => {
-                const on = isDeviceOn(device.status);
-                const label = on ? 'ON' : 'OFF';
-
-                return `
-                    <div class="sv-device-card">
-                        <div class="sv-card-left">
-                            <div class="sv-device-icon">
-                                <i class="bi ${getDeviceIcon(device.type, device.name)}"></i>
-                            </div>
-                            <div>
-                                <h4 class="sv-card-title">${escapeHtml(device.name)}</h4>
-                                <div class="sv-device-meta">${escapeHtml(device.room_name || 'Tanpa Room')}</div>
-                            </div>
-                        </div>
-
-                        <div class="sv-device-actions">
-                            <span class="sv-chip ${on ? 'on' : ''}">
-                                ${label}
-                            </span>
-                            <button type="button" class="sv-btn sv-switch ${on ? 'on' : ''}" onclick="toggleDevice(${device.id})"></button>
                         </div>
                     </div>
                 `;
             }).join('');
         }
 
+        function buildEnergyChart(data) {
+            const ctx = document.getElementById('energyChart').getContext('2d');
+
+            const labels = ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'];
+
+            const currentPower = Number(data.stats?.current_power || 0);
+            const totalEnergy = Number(data.stats?.total_energy_today || 0);
+
+            const values = [
+                0,
+                currentPower * 0.35,
+                currentPower * 0.60,
+                currentPower * 0.90,
+                currentPower * 0.70,
+                currentPower * 0.85,
+                totalEnergy > 0 ? totalEnergy * 100 : currentPower * 0.50
+            ];
+
+            if (energyChartInstance) {
+                energyChartInstance.destroy();
+            }
+
+            energyChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Konsumsi Energi',
+                        data: values,
+                        tension: 0.35,
+                        fill: true,
+                        borderColor: '#67e8f9',
+                        backgroundColor: 'rgba(103, 232, 249, 0.12)',
+                        pointBackgroundColor: '#67e8f9',
+                        pointBorderColor: '#67e8f9',
+                        pointRadius: 4,
+                        pointHoverRadius: 5,
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#d9e7fb'
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                color: '#9fb4d1'
+                            },
+                            grid: {
+                                color: 'rgba(255,255,255,0.06)'
+                            }
+                        },
+                        y: {
+                            ticks: {
+                                color: '#9fb4d1'
+                            },
+                            grid: {
+                                color: 'rgba(255,255,255,0.06)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
         function renderAll(data) {
             renderStats(data);
             renderRooms(data);
-            renderDevices(data);
+            buildEnergyChart(data);
         }
 
         async function fetchDashboardData() {
@@ -339,33 +328,15 @@
             }
         }
 
-        async function toggleDevice(id) {
-            try {
-                const toggleUrl = toggleUrlTemplate.replace('__ID__', id);
-
-                const response = await fetch(toggleUrl, {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRF-TOKEN': csrfToken,
-                        'Accept': 'application/json',
-                        'X-Requested-With': 'XMLHttpRequest'
-                    }
-                });
-
-                if (!response.ok) return;
-
-                const result = await response.json();
-
-                if (result.success) {
-                    fetchDashboardData();
-                }
-            } catch (error) {
-                console.error('Gagal toggle device:', error);
-            }
-        }
-
         renderAll(dashboardData);
         setInterval(fetchDashboardData, 5000);
     </script>
+    <form action="{{ route('logout') }}" method="POST" style="display:inline;">
+    @csrf
+    <button type="submit" class="sv-btn sv-logout-btn">
+        <i class="bi bi-box-arrow-right"></i>
+        <span>Logout</span>
+    </button>
+</form>
 </body>
 </html>

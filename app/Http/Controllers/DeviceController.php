@@ -104,25 +104,27 @@ class DeviceController extends Controller
         return back()->with('status', 'Device berhasil dihapus.');
     }
 
-    public function toggle(Device $device)
-    {
-        $device->load('room');
+   public function toggle(Request $request, Device $device)
+{
+    $device->load('room');
 
-        if (!$device->room || $device->room->user_id !== Auth::id()) {
-            abort(403, 'Anda tidak punya akses ke device ini.');
-        }
-
-        $device->update([
-            'status' => !$device->status,
-        ]);
-
-        if (request()->expectsJson()) {
-            return response()->json([
-                'success' => true,
-                'status' => $device->status ? 'on' : 'off',
-            ]);
-        }
-
-        return back()->with('status', 'Status device berhasil diubah.');
+    if (!$device->room || $device->room->user_id !== Auth::id()) {
+        abort(403, 'Anda tidak punya akses ke device ini.');
     }
+
+    $device->update([
+        'status' => !$device->status,
+    ]);
+
+    if ($request->expectsJson()) {
+        return response()->json([
+            'success' => true,
+            'status' => $device->status ? 'on' : 'off',
+        ]);
+    }
+
+    return back()
+        ->with('status', 'Status device berhasil diubah.')
+        ->with('open_room_id', $request->open_room_id);
+}
 }

@@ -9,11 +9,16 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Mail;
 
 class AuthController extends Controller
 {
-    public function showLoginForm()
+    public function showLoginForm(Request $request)
     {
+        if (Auth::check()) {
+            return redirect()->route('dashboard');
+        }
+
         return view('auth.login');
     }
 
@@ -64,16 +69,17 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        Auth::logout();
+        Auth::guard('web')->logout();
+
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect()->route('login');
+        return redirect()->route('login')->with('status', 'Anda berhasil logout.');
     }
 
     public function showForgotPasswordForm()
     {
-        return view('auth.forgot_password');
+        return redirect()->route('login', ['mode' => 'forgot']);
     }
 
     public function sendResetLink(Request $request)
@@ -87,10 +93,10 @@ class AuthController extends Controller
         );
 
         return $status === Password::RESET_LINK_SENT
-            ? back()->with('status', 'Link reset password berhasil dikirim.')
+            ? redirect()->route('login', ['mode' => 'forgot'])->with('status', 'Link reset password berhasil dikirim.')
             : back()->withErrors([
                 'email' => __($status),
-            ]);
+            ])->withInput();
     }
 
     public function showResetPasswordForm(Request $request, string $token)
@@ -125,6 +131,6 @@ class AuthController extends Controller
             ? redirect()->route('login')->with('status', 'Password berhasil direset. Silakan login.')
             : back()->withErrors([
                 'email' => __($status),
-            ]);
+            ])->withInput();
     }
 }

@@ -127,15 +127,37 @@
         }
 
         .sv-mini-btn.toggle-on {
-            background: rgba(73, 212, 155, 0.16);
+            background: rgba(73, 212, 155, 0.18);
             color: #c8ffe7;
-            border: 1px solid rgba(73, 212, 155, 0.20);
+            border: 1px solid rgba(73, 212, 155, 0.24);
+            min-width: 84px;
+            justify-content: center;
         }
 
         .sv-mini-btn.toggle-off {
-            background: rgba(255, 214, 102, 0.14);
-            color: #ffe8ad;
-            border: 1px solid rgba(255, 214, 102, 0.20);
+            background: rgba(255, 97, 97, 0.14);
+            color: #ffd7d7;
+            border: 1px solid rgba(255, 97, 97, 0.18);
+            min-width: 84px;
+            justify-content: center;
+        }
+
+        .sv-mini-btn .sv-status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+
+        .sv-mini-btn.toggle-on .sv-status-dot {
+            background: #66f2b8;
+            box-shadow: 0 0 10px rgba(102, 242, 184, 0.55);
+        }
+
+        .sv-mini-btn.toggle-off .sv-status-dot {
+            background: #ff8d8d;
+            box-shadow: 0 0 10px rgba(255, 141, 141, 0.35);
         }
 
         .sv-inline-edit {
@@ -274,29 +296,6 @@
             background: linear-gradient(135deg, rgba(72, 194, 255, 0.16), rgba(84, 255, 208, 0.14));
         }
 
-        .sv-chip-status {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 10px 14px;
-            border-radius: 999px;
-            font-size: 13px;
-            font-weight: 800;
-            letter-spacing: 0.04em;
-        }
-
-        .sv-chip-status.on {
-            background: rgba(73, 212, 155, 0.16);
-            color: #c8ffe7;
-            border: 1px solid rgba(73, 212, 155, 0.20);
-        }
-
-        .sv-chip-status.off {
-            background: rgba(255, 97, 97, 0.14);
-            color: #ffd7d7;
-            border: 1px solid rgba(255, 97, 97, 0.18);
-        }
-
         .sv-device-box {
             padding: 14px 16px;
             margin-bottom: 12px;
@@ -379,10 +378,7 @@
                 <a href="{{ route('rooms') }}" class="{{ request()->routeIs('rooms*') ? 'active' : '' }}">
                     <i class="bi bi-grid-1x2-fill"></i>
                     <span>Rooms</span>
-                </a>
-                <a href="{{ route('devices') }}" class="{{ request()->routeIs('devices*') ? 'active' : '' }}">
-                    <i class="bi bi-cpu-fill"></i>
-                    <span>Devices</span>
+             
                 </a>
                 <a href="{{ route('energy.history') }}" class="{{ request()->routeIs('energy.history') ? 'active' : '' }}">
                     <i class="bi bi-bar-chart-fill"></i>
@@ -520,6 +516,14 @@
                                             <div class="sv-room-manage-actions">
                                                
 
+                                                <button
+                                                    type="button"
+                                                    class="sv-mini-btn edit"
+                                                    onclick="toggleEditForm('edit-room-{{ $room->id }}')">
+                                                    <i class="bi bi-pencil-square"></i>
+                                                    Edit
+                                                </button>
+
                                                 <form action="{{ route('rooms.destroy', $room->id) }}" method="POST" onsubmit="return confirm('Hapus room ini?')">
                                                     @csrf
                                                     @method('DELETE')
@@ -550,7 +554,11 @@
                                                         >
                                                     </div>
 
-                                                    
+                                                    <div class="sv-form-group">
+                                                        
+                                                        
+                                                    </div>
+
                                                     <button type="submit" class="sv-primary-btn">
                                                         <i class="bi bi-plus-circle-fill"></i>
                                                         Tambah Device
@@ -567,21 +575,18 @@
                                                             <div>
                                                                 <h5 class="sv-device-box-title">{{ $device->name }}</h5>
                                                                 <div class="sv-device-box-meta">{{ $device->type ?: 'device' }}</div>
-                                                                <div style="margin-top:8px;">
-                                                                    <span class="sv-chip-status {{ $device->status ? 'on' : 'off' }}">
-                                                                        {{ $device->status ? 'ON' : 'OFF' }}
-                                                                    </span>
-                                                                </div>
                                                             </div>
 
                                                             <div class="sv-device-box-actions">
                                                                 <form action="{{ route('devices.toggle', $device->id) }}" method="POST">
-                                                                    @csrf
-                                                                    <button type="submit" class="sv-mini-btn {{ $device->status ? 'toggle-off' : 'toggle-on' }}">
-                                                                        <i class="bi {{ $device->status ? 'bi-power' : 'bi-lightning-charge-fill' }}"></i>
-                                                                        {{ $device->status ? 'Matikan' : 'Nyalakan' }}
-                                                                    </button>
-                                                                </form>
+    @csrf
+    <input type="hidden" name="open_room_id" value="{{ $room->id }}">
+
+    <button type="submit" class="sv-mini-btn {{ $device->status ? 'toggle-on' : 'toggle-off' }}">
+        <span class="sv-status-dot"></span>
+        {{ $device->status ? 'ON' : 'OFF' }}
+    </button>
+</form>
 
                                                                 <button
                                                                     type="button"
@@ -758,38 +763,57 @@
             </nav>
         </main>
     </div>
+<script>
+    function toggleEditForm(id) {
+        const form = document.getElementById(id);
 
-    <script>
-        function toggleEditForm(id) {
-            const form = document.getElementById(id);
-            if (form) {
-                form.classList.toggle('show');
-            }
+        if (form) {
+            form.classList.toggle('show');
+        }
+    }
+
+    function toggleRoomDevices(roomId) {
+        const target = document.getElementById('manage-devices-' + roomId);
+        const targetCard = document.getElementById('room-card-' + roomId);
+
+        if (!target || !targetCard) {
+            return;
         }
 
-        function toggleRoomDevices(roomId) {
-            const target = document.getElementById('manage-devices-' + roomId);
-            const targetCard = document.getElementById('room-card-' + roomId);
+        const allPanels = document.querySelectorAll('[id^="manage-devices-"]');
+        const allCards = document.querySelectorAll('[id^="room-card-"]');
 
-            if (!target || !targetCard) return;
+        const isOpen = target.classList.contains('show');
 
-            const allPanels = document.querySelectorAll('[id^="manage-devices-"]');
-            const allCards = document.querySelectorAll('[id^="room-card-"]');
+        allPanels.forEach(function(panel) {
+            panel.classList.remove('show');
+        });
 
-            const isOpen = target.classList.contains('show');
+        allCards.forEach(function(card) {
+            card.classList.remove('active-room');
+        });
 
-            allPanels.forEach(panel => panel.classList.remove('show'));
-            allCards.forEach(card => card.classList.remove('active-room'));
+        if (!isOpen) {
+            target.classList.add('show');
+            targetCard.classList.add('active-room');
 
-            if (!isOpen) {
-                target.classList.add('show');
-                targetCard.classList.add('active-room');
-
-                setTimeout(() => {
-                    target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                }, 120);
-            }
+            setTimeout(function() {
+                target.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'nearest'
+                });
+            }, 120);
         }
-    </script>
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        const openRoomId = "{{ session('open_room_id') }}";
+
+        if (openRoomId !== "") {
+            toggleRoomDevices(openRoomId);
+        }
+    });
+</script>
+   
 </body>
 </html>

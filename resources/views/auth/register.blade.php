@@ -72,8 +72,8 @@
                     @if ($errors->any())
                         <div class="sv-alert error">{{ $errors->first() }}</div>
                     @endif
-
-                    <form action="{{ route('register.process') }}" method="POST" id="registerForm">
+                    <form action="{{ url('/register') }}" method="POST">
+                 
                         @csrf
 
                         <div class="sv-field-grid two-col">
