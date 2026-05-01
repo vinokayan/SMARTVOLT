@@ -13,6 +13,7 @@ class Device extends Model
         'room_id',
         'name',
         'type',
+        'esp32_device_id',
         'status',
     ];
 
@@ -23,5 +24,10 @@ class Device extends Model
     public function room()
     {
         return $this->belongsTo(Room::class);
+    }
+
+    public function energyLogs()
+    {
+        return $this->hasMany(EnergyLog::class);
     }
 }

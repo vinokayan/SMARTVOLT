@@ -2,86 +2,70 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Command;
-use App\Services\MQTTService;
 use App\Models\Device;
 use App\Models\EnergyLog;
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
+use PhpMqtt\Client\Facades\MQTT;
 
-class MQTTListen extends Command
+class MqttListen extends Command
 {
-    protected $signature   = 'mqtt:listen';
-    protected $description = 'Listen MQTT dari ESP32 dan simpan data ke database';
+    protected $signature = 'mqtt:listen';
 
-    public function handle()
+    protected $description = 'Listen MQTT energy data from ESP32 and store it to energy_logs';
+
+    public function handle(): int
     {
-        $this->info('SmartVolt MQTT Listener berjalan...');
-        $this->info('Mendengarkan topic: energy/#');
-        $this->line('------------------------------------------------------');
+        $this->info('SmartVolt MQTT listener started...');
+        $this->info('Listening topic: smartvolt/energy/+');
 
-        $mqtt = new MQTTService();
+        $mqtt = MQTT::connection();
 
-        // ── Subscribe topic data sensor ────────────────────────────────
-        // Topic  : energy/{esp32_device_id}
-        // Payload: {"v":220.5,"i":1.80,"p":396.9,"e":0.011,"f":50.0,"pf":0.99}
-        $mqtt->subscribe('energy/#', function ($topic, $message) {
+        $mqtt->subscribe('smartvolt/energy/+', function (string $topic, string $message) {
+            $this->info("Message received on {$topic}: {$message}");
 
-            // Ambil esp32_device_id dari topic
-            $parts   = explode('/', $topic);
-            $esp32Id = $parts[1] ?? null;
+            $payload = json_decode($message, true);
 
-            if (!$esp32Id) {
-                $this->warn("[!] Topic tidak valid: {$topic}");
+            if (!is_array($payload)) {
+                Log::warning('Invalid MQTT JSON payload', [
+                    'topic' => $topic,
+                    'message' => $message,
+                ]);
+
+                $this->warn('Invalid JSON payload');
                 return;
             }
 
-            // Parse JSON
-            $data = json_decode($message, true);
+            $topicParts = explode('/', $topic);
+            $esp32DeviceId = $payload['esp32_device_id'] ?? end($topicParts);
 
-            if (!$data || !is_array($data)) {
-                $this->warn("[!] Format JSON salah dari {$esp32Id}: {$message}");
-                $this->line("    Contoh format: {\"v\":220.5,\"i\":1.80,\"p\":396.9,\"e\":0.011}");
-                return;
-            }
-
-            // Cari device berdasarkan esp32_device_id
-            $device = Device::where('esp32_device_id', $esp32Id)->first();
+            $device = Device::where('esp32_device_id', $esp32DeviceId)->first();
 
             if (!$device) {
-                $this->warn("[!] Device '{$esp32Id}' belum terdaftar di SmartVolt.");
-                $this->line("    Daftarkan lewat halaman Devices, isi kolom ESP32 Device ID.");
+                Log::warning('MQTT device not found', [
+                    'esp32_device_id' => $esp32DeviceId,
+                    'topic' => $topic,
+                ]);
+
+                $this->warn("Device not found: {$esp32DeviceId}");
                 return;
             }
 
-            // Simpan ke database
             EnergyLog::create([
-                'device_id'    => $device->id,
-                'voltage'      => round($data['v']  ?? 0,    2),
-                'current'      => round($data['i']  ?? 0,    3),
-                'power'        => round($data['p']  ?? 0,    2),
-                'energy_kwh'   => round($data['e']  ?? 0,    4),
-                'frequency'    => round($data['f']  ?? 50.0, 2),
-                'power_factor' => round($data['pf'] ?? 1.0,  3),
+                'device_id' => $device->id,
+                'voltage' => $payload['voltage'] ?? 0,
+                'current' => $payload['current'] ?? 0,
+                'power' => $payload['power'] ?? 0,
+                'energy' => $payload['energy'] ?? 0,
+                'frequency' => $payload['frequency'] ?? null,
+                'power_factor' => $payload['power_factor'] ?? null,
             ]);
 
-            // Update status device: ON jika power > 5W
-            $isOn = ($data['p'] ?? 0) > 5;
-            $device->update(['status' => $isOn]);
+            $this->info("Energy data saved for {$esp32DeviceId}");
+        }, 0);
 
-            // Log di terminal
-            $this->line(sprintf(
-                "[%s] %-20s | V:%-6s I:%-5s P:%-7s kWh:%-8s | %s",
-                now()->format('H:i:s'),
-                $device->name,
-                ($data['v'] ?? 0) . 'V',
-                ($data['i'] ?? 0) . 'A',
-                ($data['p'] ?? 0) . 'W',
-                ($data['e'] ?? 0),
-                $isOn ? '● ON' : '○ OFF'
-            ));
-        });
+        $mqtt->loop(true);
 
-        // ── Mulai loop — HARUS dipanggil setelah semua subscribe ──────
-        // Loop ini berjalan terus-menerus menunggu pesan masuk
-        $mqtt->loop();
+        return self::SUCCESS;
     }
 }

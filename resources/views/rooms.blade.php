@@ -552,6 +552,15 @@
                                                             placeholder="Contoh: Lampu Utama"
                                                             required
                                                         >
+
+                                                        <label class="sv-form-label" style="margin-top: 14px;">DEVICE KEY</label>
+<input
+    type="text"
+    name="esp32_device_id"
+    class="sv-form-input"
+    placeholder="Contoh: SV-001"
+    required
+>
                                                     </div>
 
                                                     <div class="sv-form-group">

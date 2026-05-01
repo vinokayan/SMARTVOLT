@@ -57,11 +57,11 @@ Route::middleware('auth')->group(function () {
     // ENERGY
     Route::get('/energy-history', [EnergyController::class, 'index'])->name('energy.history');
 
-    // SETTINGS
-    Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
-    Route::put('/settings/profile', [SettingsController::class, 'updateProfile'])->name('settings.profile.update');
-    Route::put('/settings/password', [SettingsController::class, 'updatePassword'])->name('settings.password.update');
-
+   // SETTINGS
+Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
+Route::put('/settings/profile', [SettingsController::class, 'updateProfile'])->name('settings.profile.update');
+Route::put('/settings/password', [SettingsController::class, 'updatePassword'])->name('settings.password.update');
+Route::put('/settings/system', [SettingsController::class, 'updateSystem'])->name('settings.system.update');
     // LOGOUT
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 });
