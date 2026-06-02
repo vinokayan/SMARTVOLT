@@ -72,7 +72,7 @@
                     @if ($errors->any())
                         <div class="sv-alert error">{{ $errors->first() }}</div>
                     @endif
-                    <form action="{{ url('/register') }}" method="POST">
+                    <form action="{{ url('/register') }}" method="POST" id="registerForm">
                  
                         @csrf
 

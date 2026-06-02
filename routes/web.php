@@ -10,10 +10,10 @@ use App\Http\Controllers\SettingsController;
 
 Route::redirect('/', '/login');
 
-Route::middleware('guest')->group(function () {
-    // LOGIN
-    Route::get('/login', [AuthController::class, 'showLoginForm'])->name('login');
+Route::get('/login', [AuthController::class, 'showLoginForm'])->name('login');
+Route::get('/register', [AuthController::class, 'showRegisterForm'])->name('register');
 
+Route::middleware('guest')->group(function () {
     // route utama login
     Route::post('/login', [AuthController::class, 'login'])->name('login.process');
 
@@ -21,7 +21,6 @@ Route::middleware('guest')->group(function () {
     Route::post('/login', [AuthController::class, 'login'])->name('login.post');
 
     // REGISTER
-    Route::get('/register', [AuthController::class, 'showRegisterForm'])->name('register');
     Route::post('/register', [AuthController::class, 'register'])->name('register.process');
 
     // route tambahan kalau ada blade yang memanggil route('register.post')
@@ -56,6 +55,7 @@ Route::middleware('auth')->group(function () {
 
     // ENERGY
     Route::get('/energy-history', [EnergyController::class, 'index'])->name('energy.history');
+    Route::get('/energy-history/export/data', [EnergyController::class, 'exportData'])->name('energy.history.export');
 
    // SETTINGS
 Route::get('/settings', [SettingsController::class, 'index'])->name('settings');

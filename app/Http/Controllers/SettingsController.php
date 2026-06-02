@@ -84,7 +84,8 @@ class SettingsController extends Controller
        $user = User::findOrFail(Auth::id());
 
 $user->update([
-    'password' => Hash::make($validated['password']),
+    'name' => $validated['name'],
+    'email' => $validated['email'],
 ]);
 
         return back()->with('status', 'Account settings berhasil diperbarui.');

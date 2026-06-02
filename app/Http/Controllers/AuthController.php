@@ -16,7 +16,7 @@ class AuthController extends Controller
     public function showLoginForm(Request $request)
     {
         if (Auth::check()) {
-            return redirect()->route('dashboard');
+            return redirect()->route('dashboard')->with('status', 'Anda saat ini sudah Login. Silakan Logout terlebih dahulu jika ingin berpindah akun.');
         }
 
         return view('auth.login');
@@ -24,6 +24,9 @@ class AuthController extends Controller
 
     public function showRegisterForm()
     {
+        if (Auth::check()) {
+            return redirect()->route('dashboard')->with('status', 'Anda saat ini masih dalam keadaan Login. Silakan Logout terlebih dahulu jika ingin membuat akun baru.');
+        }
         return view('auth.register');
     }
 

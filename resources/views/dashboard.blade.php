@@ -71,6 +71,12 @@
             </header>
 
             <section class="sv-shell">
+                @if (session('status'))
+                    <div style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); color: #93c5fd; padding: 14px 18px; border-radius: 12px; margin-bottom: 24px; font-size: 15px; display: flex; align-items: center; gap: 10px;">
+                        <i class="bi bi-info-circle-fill"></i>
+                        {{ session('status') }}
+                    </div>
+                @endif
                 <div class="sv-hero">
                     <div class="sv-hero-card sv-glass" style="padding: 28px;">
                         <div>

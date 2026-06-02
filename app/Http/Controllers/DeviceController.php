@@ -21,7 +21,9 @@ class DeviceController extends Controller
             ->latest()
             ->get();
 
-        return view('devices', compact('devices'));
+        $rooms = Room::where('user_id', Auth::id())->get();
+
+        return view('devices', compact('devices', 'rooms'));
     }
 
     public function store(Request $request)
@@ -131,48 +133,22 @@ class DeviceController extends Controller
             ]);
         }
 
-        $topic = 'smartvolt/control/' . $device->esp32_device_id;
-
-        $payload = json_encode([
-            'esp32_device_id' => $device->esp32_device_id,
-            'device_id' => $device->id,
-            'device_name' => $device->name,
-            'relay' => $newStatus,
-            'status' => $newStatus ? 'ON' : 'OFF',
+        $device->update([
+            'status' => $newStatus,
         ]);
 
-        try {
-            MQTT::publish($topic, $payload, 0);
-
-            $device->update([
-                'status' => $newStatus,
-            ]);
-
-            if ($request->expectsJson()) {
-                return response()->json([
-                    'success' => true,
-                    'status' => $device->status ? 'on' : 'off',
-                    'mqtt_topic' => $topic,
-                    'mqtt_payload' => json_decode($payload, true),
-                ]);
-            }
-
-            return back()
-                ->with('status', $newStatus
-                      ? $device->name . ' berhasil dinyalakan.'
-                       : $device->name . ' berhasil dimatikan.'
-                )
-                ->with('open_room_id', $request->open_room_id);
-        } catch (\Throwable $e) {
-            Log::error('Gagal publish MQTT control', [
-                'topic' => $topic,
-                'payload' => $payload,
-                'error' => $e->getMessage(),
-            ]);
-
-            return back()->withErrors([
-                'mqtt' => 'Gagal mengirim perintah MQTT. Pastikan broker Mosquitto aktif.',
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'status' => $device->status ? 'on' : 'off',
             ]);
         }
+
+        return back()
+            ->with('status', $newStatus
+                  ? $device->name . ' berhasil dinyalakan.'
+                   : $device->name . ' berhasil dimatikan.'
+            )
+            ->with('open_room_id', $request->open_room_id);
     }
 }

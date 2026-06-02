@@ -50,4 +50,19 @@ class EnergyController extends Controller
     'filters'
 ));
     }
+
+    public function exportData(Request $request)
+    {
+        $logs = EnergyLog::latest()->get()->map(function ($log) {
+            return [
+                'Waktu' => optional($log->created_at)->format('d/m/Y H:i:s'),
+                'Voltage (V)' => number_format($log->voltage ?? 0, 2),
+                'Current (A)' => number_format($log->current ?? 0, 2),
+                'Power (W)' => number_format($log->power ?? 0, 2),
+                'Energy (kWh)' => number_format($log->energy_kwh ?? $log->energy ?? 0, 4),
+            ];
+        });
+
+        return response()->json($logs);
+    }
 }
