@@ -64,31 +64,22 @@ class SettingsController extends Controller
         ));
     }
 
-    public function updateProfile(Request $request)
-    {
-        $validated = $request->validate([
-            'name' => ['required', 'string', 'max:100'],
-            'email' => [
-                'required',
-                'email',
-                'max:100',
-                'unique:users,email,' . Auth::id(),
-            ],
-        ], [
-            'name.required' => 'Nama wajib diisi.',
-            'email.required' => 'Email wajib diisi.',
-            'email.email' => 'Format email tidak valid.',
-            'email.unique' => 'Email sudah digunakan.',
-        ]);
+   public function updateProfile(Request $request)
+{
+    $validated = $request->validate([
+        'name' => 'required|string|max:255',
+        'email' => 'required|email|max:255|unique:users,email,' . Auth::id(),
+    ]);
 
-       $user = User::findOrFail(Auth::id());
+    $user = User::findOrFail(Auth::id());
 
-$user->update([
-    'password' => Hash::make($validated['password']),
-]);
+    $user->update([
+        'name' => $validated['name'],
+        'email' => $validated['email'],
+    ]);
 
-        return back()->with('status', 'Account settings berhasil diperbarui.');
-    }
+    return redirect()->back()->with('success', 'Profile berhasil diperbarui.');
+}
 
     public function updatePassword(Request $request)
     {

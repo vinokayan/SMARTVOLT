@@ -16,25 +16,27 @@
                     <span>SmartVolt</span>
                 </div>
 
-                <h1 class="sv-showcase-title">Build your own energy command center.</h1>
+                <h1 class="sv-showcase-title">Start Your Smart Energy Journey Today</h1>
                 <p class="sv-showcase-desc">
-                    Daftar untuk membangun workspace SmartVolt yang terasa modern, fokus, dan benar-benar berbeda dari template dashboard biasa.
+                 <p class="sv-showcase-desc">
+    Create your SmartVolt workspace and take control of your home energy with real-time monitoring, device control, and smarter electricity management.
+</p>
                 </p>
 
                 <div class="sv-feature-stack">
                     <div class="sv-feature-tile">
                         <div class="tile-icon"><i class="bi bi-house-door-fill"></i></div>
                         <div>
-                            <h4>Room-first experience</h4>
-                            <p>Struktur SmartVolt disiapkan agar ruangan dan perangkat terasa natural saat dikelola.</p>
+                            <h4>Room-Based Energy Control</h4>
+                            <p>Organize rooms and devices easily so every part of your home can be monitored and controlled in one place</p>
                         </div>
                     </div>
 
                     <div class="sv-feature-tile">
                         <div class="tile-icon"><i class="bi bi-cpu-fill"></i></div>
                         <div>
-                            <h4>Ready for ESP integration</h4>
-                            <p>Fondasi visual dan interaksi dirancang agar cocok untuk integrasi monitoring dan kontrol IoT.</p>
+                            <h4>Ready for IoT Integration</h4>
+                            <p>Connect your ESP device, track sensor data, and control appliances directly from your SmartVolt dashboard</p>
                         </div>
                     </div>
                 </div>
@@ -54,8 +56,8 @@
             <div class="sv-auth-card sv-glass">
                 <div class="sv-auth-mobile-hero">
                     <div class="sv-badge"><i class="bi bi-person-plus-fill"></i> Create SmartVolt Account</div>
-                    <h1>Buat identitas SmartVolt Anda.</h1>
-                    <p>Daftar untuk mulai monitoring energi dan mengelola device.</p>
+                    <h1>Create Your SmartVolt Identity</h1>
+                    <p>Sign up to start monitoring energy and managing your devices smarte</p>
 
                     <div class="sv-mini-wave">
                         <span></span><span></span><span></span><span></span><span></span>
@@ -63,22 +65,22 @@
                 </div>
 
                 <div class="sv-auth-body">
-                    <div class="sv-badge"><i class="bi bi-stars"></i> New workspace</div>
+                    <div class="sv-badge"><i class="bi bi-stars"></i> New SmartVolt Account</div>
                     <h2 class="sv-auth-title">Create account</h2>
                     <p class="sv-auth-subtitle">
-                        Lengkapi data berikut untuk masuk ke ekosistem SmartVolt dan mulai membangun dashboard energi Anda.
+                         Fill in your details to join SmartVolt and start building a smarter energy monitoring system
                     </p>
 
                     @if ($errors->any())
                         <div class="sv-alert error">{{ $errors->first() }}</div>
                     @endif
-                    <form action="{{ url('/register') }}" method="POST">
+                    <form id="registerForm" action="{{ url('/register') }}" method="POST">
                  
                         @csrf
 
                         <div class="sv-field-grid two-col">
                             <div class="sv-field sv-span-2">
-                                <label class="sv-label" for="name">Nama Lengkap</label>
+                                <label class="sv-label" for="name">Full Name</label>
                                 <div class="sv-input-wrap">
                                     <i class="bi bi-person-fill sv-input-icon"></i>
                                     <input
@@ -86,7 +88,7 @@
                                         type="text"
                                         name="name"
                                         class="sv-input"
-                                        placeholder="Masukkan nama lengkap"
+                                        placeholder="Enter your full name"
                                         value="{{ old('name') }}"
                                         required
                                     >
@@ -105,7 +107,7 @@
                                         type="email"
                                         name="email"
                                         class="sv-input"
-                                        placeholder="nama@smartvolt.com"
+                                        placeholder="Enter your email address"
                                         value="{{ old('email') }}"
                                         required
                                     >
@@ -124,7 +126,7 @@
                                         type="password"
                                         name="password"
                                         class="sv-input"
-                                        placeholder="Minimal 6 karakter"
+                                        placeholder="Minimum 6 characters"
                                         required
                                     >
                                     <button type="button" class="sv-password-toggle" id="togglePassword">
@@ -137,7 +139,7 @@
                             </div>
 
                             <div class="sv-field">
-                                <label class="sv-label" for="password_confirmation">Konfirmasi Password</label>
+                                <label class="sv-label" for="password_confirmation">Confirm Password</label>
                                 <div class="sv-input-wrap">
                                     <i class="bi bi-shield-lock-fill sv-input-icon"></i>
                                     <input
@@ -145,7 +147,7 @@
                                         type="password"
                                         name="password_confirmation"
                                         class="sv-input"
-                                        placeholder="Ulangi password"
+                                        placeholder="Re-enter your password"
                                         required
                                     >
                                     <button type="button" class="sv-password-toggle" id="togglePasswordConfirm">
@@ -156,7 +158,7 @@
                         </div>
 
                         <div class="sv-helper">
-                            Password minimal 6 karakter dan konfirmasi harus sama.
+                            Password must be at least 6 characters and match the confirmation
                         </div>
 
                         <button type="submit" class="sv-btn sv-auth-submit success" id="registerButton">
@@ -165,7 +167,7 @@
                     </form>
 
                     <div class="sv-auth-foot">
-                        Sudah punya akun?
+                         Already have an account?
                         <a href="{{ route('login') }}" class="sv-link">Login</a>
                     </div>
                 </div>
@@ -201,7 +203,7 @@
 
         registerForm.addEventListener('submit', function () {
             registerButton.disabled = true;
-            registerButtonText.textContent = 'Loading...';
+            registerButtonText.textContent = 'creating...';
         });
     </script>
 </body>

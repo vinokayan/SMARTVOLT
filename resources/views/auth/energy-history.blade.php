@@ -8,6 +8,8 @@
     <link rel="stylesheet" href="{{ asset('assets/css/smartvolt-brand.css') }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 
     <style>
         .history-grid {
@@ -101,6 +103,39 @@
                 grid-template-columns: 1fr;
             }
         }
+
+        /* Fix pagination SVG size */
+        nav[role="navigation"] svg {
+            width: 20px !important;
+            height: 20px !important;
+        }
+        
+        nav[role="navigation"] {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        nav[role="navigation"] p {
+            font-size: 14px;
+            color: #9fb4d1;
+        }
+
+        nav[role="navigation"] a, nav[role="navigation"] span[aria-disabled] {
+            padding: 8px 12px;
+            background: rgba(255,255,255, 0.05);
+            border-radius: 8px;
+            color: #fff;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        nav[role="navigation"] a:hover {
+            background: rgba(255,255,255, 0.1);
+        }
     </style>
 </head>
 
@@ -139,16 +174,21 @@
 
         <main class="sv-main">
             <header class="sv-topbar">
-                <div class="sv-topbar-inner">
-                    <div class="sv-topbar-left">
-                        <button class="sv-icon-button" type="button">
-                            <i class="bi bi-list"></i>
-                        </button>
-
+                <div class="sv-topbar-inner" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <div class="sv-topbar-left" style="display: flex; align-items: center; gap: 16px;">
                         <div>
                             <h1 class="sv-page-title">Energy History</h1>
                             <p class="sv-page-sub">Riwayat monitoring konsumsi listrik</p>
                         </div>
+                    </div>
+                    
+                    <div class="sv-topbar-right" style="display: flex; gap: 12px;">
+                        <button type="button" class="sv-btn-export" onclick="exportExcel()" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #34d399; padding: 8px 16px; border-radius: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.3s ease;">
+                            <i class="bi bi-file-earmark-excel-fill"></i> Export Excel
+                        </button>
+                        <button type="button" class="sv-btn-export" onclick="exportPDF()" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #f87171; padding: 8px 16px; border-radius: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.3s ease;">
+                            <i class="bi bi-file-earmark-pdf-fill"></i> Export PDF
+                        </button>
                     </div>
                 </div>
             </header>
@@ -285,6 +325,127 @@
                 maintainAspectRatio: false
             }
         });
+    }
+
+    async function exportPDF() {
+        const btn = document.querySelector('button[onclick="exportPDF()"]');
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Preparing PDF...';
+        btn.disabled = true;
+
+        try {
+            const response = await fetch('{{ route("energy.history.export") }}');
+            if (!response.ok) throw new Error('Network response was not ok');
+            const data = await response.json();
+            
+            if (data.length === 0) {
+                alert('Tidak ada data untuk di export');
+                return;
+            }
+
+            // Create a clean, minimalist container for PDF
+            const container = document.createElement('div');
+            container.style.padding = '20px';
+            container.style.fontFamily = 'Arial, sans-serif';
+            container.style.color = '#333';
+            container.style.background = '#fff';
+            
+            let html = `
+                <div style="padding: 30px; font-family: Arial, sans-serif; color: #000; background: #fff; width: 800px;">
+                    <div style="text-align: center; margin-bottom: 25px;">
+                        <h2 style="margin: 0; color: #111; font-size: 22px;">Energy History Report</h2>
+                        <p style="margin: 5px 0 0 0; color: #555; font-size: 14px;">SmartVolt IoT Monitoring</p>
+                        <p style="margin: 5px 0 0 0; color: #888; font-size: 12px;">Generated on: ${new Date().toLocaleString('id-ID')}</p>
+                    </div>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid #ddd;">
+                        <thead>
+                            <tr style="background-color: #f3f4f6; color: #111; text-align: left;">
+                                <th style="padding: 10px; border: 1px solid #ddd;">Waktu</th>
+                                <th style="padding: 10px; border: 1px solid #ddd;">Voltage (V)</th>
+                                <th style="padding: 10px; border: 1px solid #ddd;">Current (A)</th>
+                                <th style="padding: 10px; border: 1px solid #ddd;">Power (W)</th>
+                                <th style="padding: 10px; border: 1px solid #ddd;">Energy (kWh)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            data.forEach((row, index) => {
+                const bg = index % 2 === 0 ? '#ffffff' : '#fafafa';
+                html += `
+                    <tr style="background-color: ${bg};">
+                        <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Waktu']}</td>
+                        <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Voltage (V)']}</td>
+                        <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Current (A)']}</td>
+                        <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Power (W)']}</td>
+                        <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Energy (kWh)']}</td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            const opt = {
+                margin:       [10, 10, 10, 10], // top, left, bottom, right
+                filename:     'Energy_History_SmartVolt.pdf',
+                image:        { type: 'jpeg', quality: 0.98 },
+                html2canvas:  { scale: 2, useCORS: true, logging: true, backgroundColor: '#ffffff' },
+                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+
+            await html2pdf().set(opt).from(html).save();
+
+        } catch (error) {
+            console.error('Export failed:', error);
+            alert('Gagal mengekspor data ke PDF.');
+        } finally {
+            btn.innerHTML = originalHTML;
+            btn.disabled = false;
+        }
+    }
+
+    async function exportExcel() {
+        const btn = document.querySelector('button[onclick="exportExcel()"]');
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Loading...';
+        btn.disabled = true;
+
+        try {
+            const response = await fetch('{{ route("energy.history.export") }}');
+            if (!response.ok) throw new Error('Network response was not ok');
+            const data = await response.json();
+            
+            if (data.length === 0) {
+                alert('Tidak ada data untuk di export');
+                return;
+            }
+
+            const worksheet = XLSX.utils.json_to_sheet(data);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Energy History");
+            
+            // Adjust column widths
+            const colWidths = [
+                {wch: 22}, // Waktu
+                {wch: 15}, // Voltage
+                {wch: 15}, // Current
+                {wch: 15}, // Power
+                {wch: 18}  // Energy
+            ];
+            worksheet['!cols'] = colWidths;
+
+            XLSX.writeFile(workbook, "Energy_History_SmartVolt.xlsx");
+        } catch (error) {
+            console.error('Export failed:', error);
+            alert('Gagal mengekspor data.');
+        } finally {
+            btn.innerHTML = originalHTML;
+            btn.disabled = false;
+        }
     }
 </script>  
 </body>

@@ -56,7 +56,11 @@ Route::middleware('auth')->group(function () {
 
     // ENERGY
     Route::get('/energy-history', [EnergyController::class, 'index'])->name('energy.history');
+    Route::get('/energy-history', [EnergyController::class, 'index'])
+    ->name('energy.history');
 
+Route::get('/energy-history/export', [EnergyController::class, 'export'])
+    ->name('energy.history.export');
    // SETTINGS
 Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
 Route::put('/settings/profile', [SettingsController::class, 'updateProfile'])->name('settings.profile.update');

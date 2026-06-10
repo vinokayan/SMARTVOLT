@@ -25,56 +25,56 @@ class DeviceController extends Controller
     }
 
     public function store(Request $request)
-{
-    $validated = $request->validate([
-        'room_id' => ['required', 'exists:rooms,id'],
-        'name' => [
-            'required',
-            'string',
-            'max:100',
-            Rule::unique('devices')->where(function ($query) use ($request) {
-                return $query->where('room_id', $request->room_id);
-            }),
-        ],
-        'esp32_device_id' => [
-            'required',
-            'string',
-            'max:100',
-            'unique:devices,esp32_device_id',
-        ],
-        'type' => ['nullable', 'string', 'max:100'],
-    ], [
-        'room_id.required' => 'Room wajib dipilih.',
-        'room_id.exists' => 'Room tidak valid.',
-        'name.required' => 'Nama device wajib diisi.',
-        'name.unique' => 'Nama device sudah ada di room ini.',
-        'esp32_device_id.required' => 'Device Key wajib diisi.',
-        'esp32_device_id.unique' => 'Device Key sudah digunakan.',
-    ]);
+    {
+        $validated = $request->validate([
+            'room_id' => ['required', 'exists:rooms,id'],
+            'name' => [
+                'required',
+                'string',
+                'max:100',
+                Rule::unique('devices')->where(function ($query) use ($request) {
+                    return $query->where('room_id', $request->room_id);
+                }),
+            ],
+            'esp32_device_id' => [
+                'required',
+                'string',
+                'max:100',
+                'unique:devices,esp32_device_id',
+            ],
+            'type' => ['nullable', 'string', 'max:100'],
+        ], [
+            'room_id.required' => 'Room is required.',
+            'room_id.exists' => 'The selected room is invalid.',
+            'name.required' => 'Device name is required.',
+            'name.unique' => 'Device name already exists in this room.',
+            'esp32_device_id.required' => 'Device Key is required.',
+            'esp32_device_id.unique' => 'Device Key is already used.',
+        ]);
 
-    $room = Room::findOrFail($validated['room_id']);
+        $room = Room::findOrFail($validated['room_id']);
 
-    if ($room->user_id !== Auth::id()) {
-        abort(403, 'Anda tidak punya akses ke room ini.');
+        if ($room->user_id !== Auth::id()) {
+            abort(403, 'You do not have access to this room.');
+        }
+
+        Device::create([
+            'room_id' => $room->id,
+            'name' => $validated['name'],
+            'type' => $validated['type'] ?? null,
+            'esp32_device_id' => $validated['esp32_device_id'],
+            'status' => false,
+        ]);
+
+        return back()->with('status', ucfirst($validated['name']) . ' has been added successfully.');
     }
-
-    Device::create([
-        'room_id' => $room->id,
-        'name' => $validated['name'],
-        'type' => $validated['type'] ?? null,
-        'esp32_device_id' => $validated['esp32_device_id'],
-        'status' => false,
-    ]);
-
-    return back()->with('status', ucfirst($validated['name']) . ' berhasil ditambahkan.');
-}
 
     public function update(Request $request, Device $device)
     {
         $device->load('room');
 
         if (!$device->room || $device->room->user_id !== Auth::id()) {
-            abort(403, 'Anda tidak punya akses ke device ini.');
+            abort(403, 'You do not have access to this device.');
         }
 
         $validated = $request->validate([
@@ -88,18 +88,28 @@ class DeviceController extends Controller
                     })
                     ->ignore($device->id),
             ],
+            'esp32_device_id' => [
+                'required',
+                'string',
+                'max:100',
+                Rule::unique('devices', 'esp32_device_id')
+                    ->ignore($device->id),
+            ],
             'type' => ['nullable', 'string', 'max:100'],
         ], [
-            'name.required' => 'Nama device wajib diisi.',
-            'name.unique' => 'Nama device sudah ada di room ini.',
+            'name.required' => 'Device name is required.',
+            'name.unique' => 'Device name already exists in this room.',
+            'esp32_device_id.required' => 'Device Key is required.',
+            'esp32_device_id.unique' => 'Device Key is already used.',
         ]);
 
         $device->update([
             'name' => $validated['name'],
-            'type' => $validated['type'] ?? null,
+            'esp32_device_id' => $validated['esp32_device_id'],
+            'type' => $validated['type'] ?? $device->type,
         ]);
 
-        return back()->with('status', 'Device berhasil diperbarui.');
+        return back()->with('status', 'Device updated successfully.');
     }
 
     public function destroy(Device $device)
@@ -107,12 +117,14 @@ class DeviceController extends Controller
         $device->load('room');
 
         if (!$device->room || $device->room->user_id !== Auth::id()) {
-            abort(403, 'Anda tidak punya akses ke device ini.');
+            abort(403, 'You do not have access to this device.');
         }
+
+        $deviceName = $device->name;
 
         $device->delete();
 
-       return back()->with('status', ucfirst($device->name) . ' berhasil dihapus.'); 
+        return back()->with('status', ucfirst($deviceName) . ' has been deleted successfully.');
     }
 
     public function toggle(Request $request, Device $device)
@@ -120,14 +132,14 @@ class DeviceController extends Controller
         $device->load('room');
 
         if (!$device->room || $device->room->user_id !== Auth::id()) {
-            abort(403, 'Anda tidak punya akses ke device ini.');
+            abort(403, 'You do not have access to this device.');
         }
 
         $newStatus = ! (bool) $device->status;
 
         if (!$device->esp32_device_id) {
             return back()->withErrors([
-                'device' => 'Device belum memiliki ESP32 Device ID. Isi dulu di System Settings.',
+                'device' => 'This device does not have an ESP32 Device ID yet. Please fill in the Device Key first.',
             ]);
         }
 
@@ -158,20 +170,30 @@ class DeviceController extends Controller
             }
 
             return back()
-                ->with('status', $newStatus
-                      ? $device->name . ' berhasil dinyalakan.'
-                       : $device->name . ' berhasil dimatikan.'
+                ->with(
+                    'status',
+                    $newStatus
+                        ? $device->name . ' has been turned on successfully.'
+                        : $device->name . ' has been turned off successfully.'
                 )
                 ->with('open_room_id', $request->open_room_id);
         } catch (\Throwable $e) {
-            Log::error('Gagal publish MQTT control', [
+            Log::error('Failed to publish MQTT control command', [
                 'topic' => $topic,
                 'payload' => $payload,
                 'error' => $e->getMessage(),
             ]);
 
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to send MQTT command. Make sure the Mosquitto broker is running.',
+                    'error' => $e->getMessage(),
+                ], 500);
+            }
+
             return back()->withErrors([
-                'mqtt' => 'Gagal mengirim perintah MQTT. Pastikan broker Mosquitto aktif.',
+                'mqtt' => 'Failed to send MQTT command. Make sure the Mosquitto broker is running.',
             ]);
         }
     }

@@ -7,65 +7,105 @@ use App\Models\EnergyLog;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use PhpMqtt\Client\Facades\MQTT;
+use Throwable;
 
-class MqttListen extends Command
+class MQTTListen extends Command
 {
     protected $signature = 'mqtt:listen';
 
-    protected $description = 'Listen MQTT energy data from ESP32 and store it to energy_logs';
+    protected $description = 'Listen to SmartVolt MQTT energy data';
 
     public function handle(): int
     {
+        $topic = 'smartvolt/energy/+';
+
         $this->info('SmartVolt MQTT listener started...');
-        $this->info('Listening topic: smartvolt/energy/+');
+        $this->info('Listening topic: ' . $topic);
 
-        $mqtt = MQTT::connection();
+        while (true) {
+            try {
+                $mqtt = MQTT::connection();
 
-        $mqtt->subscribe('smartvolt/energy/+', function (string $topic, string $message) {
-            $this->info("Message received on {$topic}: {$message}");
+                $mqtt->subscribe($topic, function (string $topic, string $message) {
+                    $this->processEnergyMessage($topic, $message);
+                }, 0);
+
+                $mqtt->loop(true);
+            } catch (Throwable $e) {
+                $this->error('MQTT connection lost: ' . $e->getMessage());
+
+                Log::error('MQTT listener disconnected', [
+                    'error' => $e->getMessage(),
+                ]);
+
+                $this->warn('Reconnecting to MQTT broker in 3 seconds...');
+                sleep(3);
+            } finally {
+                try {
+                    if (isset($mqtt)) {
+                        $mqtt->disconnect();
+                    }
+                } catch (Throwable $e) {
+                    // Ignore disconnect errors.
+                }
+            }
+        }
+
+        return self::SUCCESS;
+    }
+
+    private function processEnergyMessage(string $topic, string $message): void
+    {
+        try {
+            $this->info('Message received on ' . $topic . ': ' . $message);
 
             $payload = json_decode($message, true);
 
             if (!is_array($payload)) {
-                Log::warning('Invalid MQTT JSON payload', [
-                    'topic' => $topic,
-                    'message' => $message,
-                ]);
-
-                $this->warn('Invalid JSON payload');
+                $this->error('Invalid JSON payload');
                 return;
             }
 
-            $topicParts = explode('/', $topic);
-            $esp32DeviceId = $payload['esp32_device_id'] ?? end($topicParts);
+            $deviceKey = $payload['esp32_device_id'] ?? $this->getDeviceKeyFromTopic($topic);
 
-            $device = Device::where('esp32_device_id', $esp32DeviceId)->first();
+            if (!$deviceKey) {
+                $this->error('Device key not found in payload or topic.');
+                return;
+            }
+
+            $device = Device::where('esp32_device_id', (string) $deviceKey)->first();
 
             if (!$device) {
-                Log::warning('MQTT device not found', [
-                    'esp32_device_id' => $esp32DeviceId,
-                    'topic' => $topic,
-                ]);
-
-                $this->warn("Device not found: {$esp32DeviceId}");
+                $this->error('Device not found: ' . $deviceKey);
                 return;
             }
 
             EnergyLog::create([
                 'device_id' => $device->id,
-                'voltage' => $payload['voltage'] ?? 0,
-                'current' => $payload['current'] ?? 0,
-                'power' => $payload['power'] ?? 0,
-                'energy' => $payload['energy'] ?? 0,
-                'frequency' => $payload['frequency'] ?? null,
-                'power_factor' => $payload['power_factor'] ?? null,
+                'voltage' => (float) ($payload['voltage'] ?? 0),
+                'current' => (float) ($payload['current'] ?? 0),
+                'power' => (float) ($payload['power'] ?? 0),
+                'energy' => (float) ($payload['energy'] ?? 0),
+                'frequency' => (float) ($payload['frequency'] ?? 0),
+                'power_factor' => (float) ($payload['power_factor'] ?? 0),
             ]);
 
-            $this->info("Energy data saved for {$esp32DeviceId}");
-        }, 0);
+            $this->info('Energy data saved for ' . $deviceKey);
+        } catch (Throwable $e) {
+            $this->error('Failed to process MQTT message: ' . $e->getMessage());
 
-        $mqtt->loop(true);
+            Log::error('Failed to process MQTT energy message', [
+                'topic' => $topic,
+                'message' => $message,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
 
-        return self::SUCCESS;
+    private function getDeviceKeyFromTopic(string $topic): ?string
+    {
+        $parts = explode('/', $topic);
+
+        return end($parts) ?: null;
     }
 }

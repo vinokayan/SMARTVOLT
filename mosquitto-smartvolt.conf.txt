@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>SmartVolt Control</title>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f3f4f6;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+
+    .card {
+      background: white;
+      padding: 30px;
+      border-radius: 16px;
+      box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+      width: 320px;
+      text-align: center;
+    }
+
+    button {
+      width: 100%;
+      padding: 16px;
+      margin-top: 12px;
+      border: none;
+      border-radius: 10px;
+      color: white;
+      font-size: 18px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    .on {
+      background: green;
+    }
+
+    .off {
+      background: red;
+    }
+
+    #status {
+      margin-top: 20px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="card">
+    <h1>SmartVolt</h1>
+    <p>Kontrol Lampu 1</p>
+
+    <button class="on" onclick="kirimPerintah('ON')">ON</button>
+    <button class="off" onclick="kirimPerintah('OFF')">OFF</button>
+
+    <div id="status">Status: Menghubungkan MQTT...</div>
+  </div>
+
+  <script>
+    const client = mqtt.connect("ws://172.20.10.5:9001");
+    const statusText = document.getElementById("status");
+
+    client.on("connect", function () {
+      statusText.innerText = "Status: MQTT Terhubung";
+      console.log("Website terhubung ke MQTT");
+    });
+
+    client.on("error", function (error) {
+      statusText.innerText = "Status: MQTT Error";
+      console.error(error);
+    });
+
+    client.on("close", function () {
+      statusText.innerText = "Status: MQTT Terputus";
+    });
+
+    function kirimPerintah(command) {
+      const topic = "smartvolt/control/lampu1";
+
+      client.publish(topic, command);
+
+      statusText.innerText = "Status: Lampu 1 " + command;
+      console.log("Kirim MQTT:", topic, command);
+    }
+  </script>
+</body>
+</html>
