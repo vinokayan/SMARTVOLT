@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -147,7 +147,7 @@
                 <span>SmartVolt</span>
             </div>
 
-            <p>Energy command center untuk monitoring, kontrol perangkat, dan insight konsumsi listrik.</p>
+            <p>Energy command center for monitoring, device control, and electricity consumption insights.</p>
 
             <nav class="sv-nav">
                 <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">
@@ -178,7 +178,7 @@
                     <div class="sv-topbar-left" style="display: flex; align-items: center; gap: 16px;">
                         <div>
                             <h1 class="sv-page-title">Energy History</h1>
-                            <p class="sv-page-sub">Riwayat monitoring konsumsi listrik</p>
+                            <p class="sv-page-sub">Electricity consumption monitoring history</p>
                         </div>
                     </div>
                     
@@ -196,16 +196,16 @@
             <section class="sv-shell">
                 <div class="sv-hero">
                     <div class="sv-hero-card sv-glass" style="padding: 28px;">
-                        <h1 style="margin-bottom: 10px;">Pantau riwayat energi perangkat listrik.</h1>
+                        <h1 style="margin-bottom: 10px;">Monitor the energy history of electrical devices.</h1>
                         <p style="margin: 0; color: #b9cae3;">
-                            Halaman ini menampilkan data tegangan, arus, daya, dan energi dari sensor yang masuk ke sistem.
+                            This page displays voltage, current, power, and energy data from sensors sent to the system.
                         </p>
                     </div>
                 </div>
 
                 <div class="history-grid">
                     <div class="history-card sv-glass">
-                        <div class="history-label">Total Data</div>
+                        <div class="history-label">Total Records</div>
                         <div class="history-value">{{ $summary['total_logs'] ?? 0 }}</div>
                     </div>
 
@@ -228,8 +228,8 @@
                 <div class="history-panel sv-glass">
                     <div class="sv-panel-head">
                         <div>
-                            <h3>Grafik Energy History</h3>
-                            <div class="sv-panel-sub">Data power dan energy dari tabel energy_logs</div>
+                            <h3>Energy History Chart</h3>
+                            <div class="sv-panel-sub">Power and energy data from the energy_logs table</div>
                         </div>
                     </div>
 
@@ -246,8 +246,8 @@
                 <div class="history-panel sv-glass">
                     <div class="sv-panel-head">
                         <div>
-                            <h3>Data Sensor</h3>
-                            <div class="sv-panel-sub">Riwayat data yang masuk ke database</div>
+                            <h3>Sensor Data</h3>
+                            <div class="sv-panel-sub">History of data stored in the database</div>
                         </div>
                     </div>
 
@@ -255,7 +255,7 @@
                         <table class="history-table">
                             <thead>
                                 <tr>
-                                    <th>Waktu</th>
+                                    <th>Time</th>
                                     <th>Voltage</th>
                                     <th>Current</th>
                                     <th>Power</th>
@@ -276,7 +276,7 @@
                                     <tr>
                                         <td colspan="5">
                                             <div class="history-empty">
-                                                Belum ada data energy history. Nanti data akan muncul setelah ESP32/sensor mengirim data ke database.
+                                                No energy history data yet. Data will appear after the ESP32/sensor sends data to the database.
                                             </div>
                                         </td>
                                     </tr>
@@ -339,7 +339,7 @@
             const data = await response.json();
             
             if (data.length === 0) {
-                alert('Tidak ada data untuk di export');
+                alert('No data available to export.');
                 return;
             }
 
@@ -355,12 +355,12 @@
                     <div style="text-align: center; margin-bottom: 25px;">
                         <h2 style="margin: 0; color: #111; font-size: 22px;">Energy History Report</h2>
                         <p style="margin: 5px 0 0 0; color: #555; font-size: 14px;">SmartVolt IoT Monitoring</p>
-                        <p style="margin: 5px 0 0 0; color: #888; font-size: 12px;">Generated on: ${new Date().toLocaleString('id-ID')}</p>
+                        <p style="margin: 5px 0 0 0; color: #888; font-size: 12px;">Generated on: ${new Date().toLocaleString('en-US')}</p>
                     </div>
                     <table style="width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid #ddd;">
                         <thead>
                             <tr style="background-color: #f3f4f6; color: #111; text-align: left;">
-                                <th style="padding: 10px; border: 1px solid #ddd;">Waktu</th>
+                                <th style="padding: 10px; border: 1px solid #ddd;">Time</th>
                                 <th style="padding: 10px; border: 1px solid #ddd;">Voltage (V)</th>
                                 <th style="padding: 10px; border: 1px solid #ddd;">Current (A)</th>
                                 <th style="padding: 10px; border: 1px solid #ddd;">Power (W)</th>
@@ -401,7 +401,7 @@
 
         } catch (error) {
             console.error('Export failed:', error);
-            alert('Gagal mengekspor data ke PDF.');
+            alert('Failed to export data to PDF.');
         } finally {
             btn.innerHTML = originalHTML;
             btn.disabled = false;
@@ -420,7 +420,7 @@
             const data = await response.json();
             
             if (data.length === 0) {
-                alert('Tidak ada data untuk di export');
+                alert('No data available to export.');
                 return;
             }
 
@@ -430,7 +430,7 @@
             
             // Adjust column widths
             const colWidths = [
-                {wch: 22}, // Waktu
+                {wch: 22}, // Time
                 {wch: 15}, // Voltage
                 {wch: 15}, // Current
                 {wch: 15}, // Power
@@ -441,7 +441,7 @@
             XLSX.writeFile(workbook, "Energy_History_SmartVolt.xlsx");
         } catch (error) {
             console.error('Export failed:', error);
-            alert('Gagal mengekspor data.');
+            alert('Failed to export data.');
         } finally {
             btn.innerHTML = originalHTML;
             btn.disabled = false;
