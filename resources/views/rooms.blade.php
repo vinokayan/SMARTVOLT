@@ -417,9 +417,7 @@
             <header class="sv-topbar">
                 <div class="sv-topbar-inner">
                     <div class="sv-topbar-left">
-                        <button class="sv-btn sv-iconbtn" type="button">
-                            <i class="bi bi-list"></i>
-                        </button>
+                     
 
                         <div>
                             <h1 class="sv-page-title">SmartVolt Control Hub</h1>
@@ -766,6 +764,28 @@
                     </div>
                 </div>
             </section>
+
+            <nav class="sv-bottomnav">
+                <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">
+                    <i class="bi bi-house-door-fill"></i>
+                    <span>Dashboard</span>
+                </a>
+
+                <a href="{{ route('rooms') }}" class="{{ request()->routeIs('rooms*') ? 'active' : '' }}">
+                    <i class="bi bi-grid-1x2-fill"></i>
+                    <span>Rooms</span>
+                </a>
+
+                <a href="{{ route('energy.history') }}" class="{{ request()->routeIs('energy.history') ? 'active' : '' }}">
+                    <i class="bi bi-bar-chart-fill"></i>
+                    <span>History</span>
+                </a>
+
+                <a href="{{ route('settings') }}" class="{{ request()->routeIs('settings*') ? 'active' : '' }}">
+                    <i class="bi bi-gear-fill"></i>
+                    <span>Settings</span>
+                </a>
+            </nav>
         </main>
     </div>
 
