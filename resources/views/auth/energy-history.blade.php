@@ -66,7 +66,7 @@
 
         .history-table {
             width: 100%;
-            min-width: 850px;
+            min-width: 1100px;
             border-collapse: collapse;
         }
 
@@ -235,11 +235,11 @@
 
                     <div class="history-chart-wrap">
                         <canvas
-    id="energyHistoryChart"
-    data-labels='{{ json_encode($chart["labels"] ?? []) }}'
-    data-power='{{ json_encode($chart["power"] ?? []) }}'
-    data-energy='{{ json_encode($chart["energy"] ?? []) }}'>
-</canvas>
+                            id="energyHistoryChart"
+                            data-labels='{{ json_encode($chart["labels"] ?? []) }}'
+                            data-power='{{ json_encode($chart["power"] ?? []) }}'
+                            data-energy='{{ json_encode($chart["energy"] ?? []) }}'>
+                        </canvas>
                     </div>
                 </div>
 
@@ -255,6 +255,8 @@
                         <table class="history-table">
                             <thead>
                                 <tr>
+                                    <th>Room</th>
+                                    <th>Device</th>
                                     <th>Time</th>
                                     <th>Voltage</th>
                                     <th>Current</th>
@@ -266,6 +268,8 @@
                             <tbody>
                                 @forelse ($logs as $log)
                                     <tr>
+                                        <td>{{ $log->room_name ?? '-' }}</td>
+                                        <td>{{ $log->device_name ?? '-' }}</td>
                                         <td>{{ optional($log->created_at)->format('d/m/Y H:i:s') }}</td>
                                         <td>{{ number_format($log->voltage ?? 0, 2) }} V</td>
                                         <td>{{ number_format($log->current ?? 0, 2) }} A</td>
@@ -274,7 +278,7 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="5">
+                                        <td colspan="7">
                                             <div class="history-empty">
                                                 No energy history data yet. Data will appear after the ESP32/sensor sends data to the database.
                                             </div>
@@ -315,160 +319,166 @@
         </main>
     </div>
 
-  <script>
-    const chartEl = document.getElementById('energyHistoryChart');
+    <script>
+        const chartEl = document.getElementById('energyHistoryChart');
 
-    if (chartEl) {
-        const chartLabels = JSON.parse(chartEl.dataset.labels || '[]');
-        const chartPower = JSON.parse(chartEl.dataset.power || '[]');
-        const chartEnergy = JSON.parse(chartEl.dataset.energy || '[]');
+        if (chartEl) {
+            const chartLabels = JSON.parse(chartEl.dataset.labels || '[]');
+            const chartPower = JSON.parse(chartEl.dataset.power || '[]');
+            const chartEnergy = JSON.parse(chartEl.dataset.energy || '[]');
 
-        const ctx = chartEl.getContext('2d');
+            const ctx = chartEl.getContext('2d');
 
-        new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: chartLabels,
-                datasets: [
-                    {
-                        label: 'Power (W)',
-                        data: chartPower,
-                        tension: 0.35
-                    },
-                    {
-                        label: 'Energy (kWh)',
-                        data: chartEnergy,
-                        tension: 0.35
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false
-            }
-        });
-    }
-
-    async function exportPDF() {
-        const btn = document.querySelector('button[onclick="exportPDF()"]');
-        const originalHTML = btn.innerHTML;
-        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Preparing PDF...';
-        btn.disabled = true;
-
-        try {
-            const response = await fetch('{{ route("energy.history.export") }}');
-            if (!response.ok) throw new Error('Network response was not ok');
-            const data = await response.json();
-            
-            if (data.length === 0) {
-                alert('No data available to export.');
-                return;
-            }
-
-            // Create a clean, minimalist container for PDF
-            const container = document.createElement('div');
-            container.style.padding = '20px';
-            container.style.fontFamily = 'Arial, sans-serif';
-            container.style.color = '#333';
-            container.style.background = '#fff';
-            
-            let html = `
-                <div style="padding: 30px; font-family: Arial, sans-serif; color: #000; background: #fff; width: 800px;">
-                    <div style="text-align: center; margin-bottom: 25px;">
-                        <h2 style="margin: 0; color: #111; font-size: 22px;">Energy History Report</h2>
-                        <p style="margin: 5px 0 0 0; color: #555; font-size: 14px;">SmartVolt IoT Monitoring</p>
-                        <p style="margin: 5px 0 0 0; color: #888; font-size: 12px;">Generated on: ${new Date().toLocaleString('en-US')}</p>
-                    </div>
-                    <table style="width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid #ddd;">
-                        <thead>
-                            <tr style="background-color: #f3f4f6; color: #111; text-align: left;">
-                                <th style="padding: 10px; border: 1px solid #ddd;">Time</th>
-                                <th style="padding: 10px; border: 1px solid #ddd;">Voltage (V)</th>
-                                <th style="padding: 10px; border: 1px solid #ddd;">Current (A)</th>
-                                <th style="padding: 10px; border: 1px solid #ddd;">Power (W)</th>
-                                <th style="padding: 10px; border: 1px solid #ddd;">Energy (kWh)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-            `;
-
-            data.forEach((row, index) => {
-                const bg = index % 2 === 0 ? '#ffffff' : '#fafafa';
-                html += `
-                    <tr style="background-color: ${bg};">
-                        <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Waktu']}</td>
-                        <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Voltage (V)']}</td>
-                        <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Current (A)']}</td>
-                        <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Power (W)']}</td>
-                        <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Energy (kWh)']}</td>
-                    </tr>
-                `;
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: chartLabels,
+                    datasets: [
+                        {
+                            label: 'Power (W)',
+                            data: chartPower,
+                            tension: 0.35
+                        },
+                        {
+                            label: 'Energy (kWh)',
+                            data: chartEnergy,
+                            tension: 0.35
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
             });
-
-            html += `
-                        </tbody>
-                    </table>
-                </div>
-            `;
-
-            const opt = {
-                margin:       [10, 10, 10, 10], // top, left, bottom, right
-                filename:     'Energy_History_SmartVolt.pdf',
-                image:        { type: 'jpeg', quality: 0.98 },
-                html2canvas:  { scale: 2, useCORS: true, logging: true, backgroundColor: '#ffffff' },
-                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-            };
-
-            await html2pdf().set(opt).from(html).save();
-
-        } catch (error) {
-            console.error('Export failed:', error);
-            alert('Failed to export data to PDF.');
-        } finally {
-            btn.innerHTML = originalHTML;
-            btn.disabled = false;
         }
-    }
 
-    async function exportExcel() {
-        const btn = document.querySelector('button[onclick="exportExcel()"]');
-        const originalHTML = btn.innerHTML;
-        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Loading...';
-        btn.disabled = true;
+        async function exportPDF() {
+            const btn = document.querySelector('button[onclick="exportPDF()"]');
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Preparing PDF...';
+            btn.disabled = true;
 
-        try {
-            const response = await fetch('{{ route("energy.history.export") }}');
-            if (!response.ok) throw new Error('Network response was not ok');
-            const data = await response.json();
-            
-            if (data.length === 0) {
-                alert('No data available to export.');
-                return;
+            try {
+                const response = await fetch('{{ route("energy.history.export") }}');
+                if (!response.ok) throw new Error('Network response was not ok');
+                const data = await response.json();
+                
+                if (data.length === 0) {
+                    alert('No data available to export.');
+                    return;
+                }
+
+                const container = document.createElement('div');
+                container.style.padding = '20px';
+                container.style.fontFamily = 'Arial, sans-serif';
+                container.style.color = '#333';
+                container.style.background = '#fff';
+                
+                let html = `
+                    <div style="padding: 30px; font-family: Arial, sans-serif; color: #000; background: #fff; width: 800px;">
+                        <div style="text-align: center; margin-bottom: 25px;">
+                            <h2 style="margin: 0; color: #111; font-size: 22px;">Energy History Report</h2>
+                            <p style="margin: 5px 0 0 0; color: #555; font-size: 14px;">SmartVolt IoT Monitoring</p>
+                            <p style="margin: 5px 0 0 0; color: #888; font-size: 12px;">Generated on: ${new Date().toLocaleString('en-US')}</p>
+                        </div>
+                        <table style="width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid #ddd;">
+                            <thead>
+                                <tr style="background-color: #f3f4f6; color: #111; text-align: left;">
+                                    <th style="padding: 10px; border: 1px solid #ddd;">Room</th>
+                                    <th style="padding: 10px; border: 1px solid #ddd;">Device</th>
+                                    <th style="padding: 10px; border: 1px solid #ddd;">Time</th>
+                                    <th style="padding: 10px; border: 1px solid #ddd;">Voltage (V)</th>
+                                    <th style="padding: 10px; border: 1px solid #ddd;">Current (A)</th>
+                                    <th style="padding: 10px; border: 1px solid #ddd;">Power (W)</th>
+                                    <th style="padding: 10px; border: 1px solid #ddd;">Energy (kWh)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+
+                data.forEach((row, index) => {
+                    const bg = index % 2 === 0 ? '#ffffff' : '#fafafa';
+
+                    html += `
+                        <tr style="background-color: ${bg};">
+                            <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Room'] || '-'}</td>
+                            <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Device'] || '-'}</td>
+                            <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Waktu'] || '-'}</td>
+                            <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Voltage (V)'] || '0'}</td>
+                            <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Current (A)'] || '0'}</td>
+                            <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Power (W)'] || '0'}</td>
+                            <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Energy (kWh)'] || '0'}</td>
+                        </tr>
+                    `;
+                });
+
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+
+                const opt = {
+                    margin:       [10, 10, 10, 10],
+                    filename:     'Energy_History_SmartVolt.pdf',
+                    image:        { type: 'jpeg', quality: 0.98 },
+                    html2canvas:  { scale: 2, useCORS: true, logging: true, backgroundColor: '#ffffff' },
+                    jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                };
+
+                await html2pdf().set(opt).from(html).save();
+
+            } catch (error) {
+                console.error('Export failed:', error);
+                alert('Failed to export data to PDF.');
+            } finally {
+                btn.innerHTML = originalHTML;
+                btn.disabled = false;
             }
-
-            const worksheet = XLSX.utils.json_to_sheet(data);
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Energy History");
-            
-            // Adjust column widths
-            const colWidths = [
-                {wch: 22}, // Time
-                {wch: 15}, // Voltage
-                {wch: 15}, // Current
-                {wch: 15}, // Power
-                {wch: 18}  // Energy
-            ];
-            worksheet['!cols'] = colWidths;
-
-            XLSX.writeFile(workbook, "Energy_History_SmartVolt.xlsx");
-        } catch (error) {
-            console.error('Export failed:', error);
-            alert('Failed to export data.');
-        } finally {
-            btn.innerHTML = originalHTML;
-            btn.disabled = false;
         }
-    }
-</script>  
+
+        async function exportExcel() {
+            const btn = document.querySelector('button[onclick="exportExcel()"]');
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Loading...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('{{ route("energy.history.export") }}');
+                if (!response.ok) throw new Error('Network response was not ok');
+                const data = await response.json();
+                
+                if (data.length === 0) {
+                    alert('No data available to export.');
+                    return;
+                }
+
+                const worksheet = XLSX.utils.json_to_sheet(data);
+                const workbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(workbook, worksheet, "Energy History");
+                
+                const colWidths = [
+                    {wch: 20}, // Room
+                    {wch: 22}, // Device
+                    {wch: 22}, // Time
+                    {wch: 15}, // Voltage
+                    {wch: 15}, // Current
+                    {wch: 15}, // Power
+                    {wch: 18}  // Energy
+                ];
+
+                worksheet['!cols'] = colWidths;
+
+                XLSX.writeFile(workbook, "Energy_History_SmartVolt.xlsx");
+            } catch (error) {
+                console.error('Export failed:', error);
+                alert('Failed to export data.');
+            } finally {
+                btn.innerHTML = originalHTML;
+                btn.disabled = false;
+            }
+        }
+    </script>  
 </body>
 </html>

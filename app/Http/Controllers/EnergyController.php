@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Device;
 use App\Models\EnergyLog;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class EnergyController extends Controller
 {
@@ -16,26 +17,25 @@ class EnergyController extends Controller
             'date_to' => $request->input('date_to'),
         ];
 
-        $query = EnergyLog::with('device.room');
-
-        if (!empty($filters['device_id'])) {
-            $query->where('device_id', $filters['device_id']);
-        }
-
-        if (!empty($filters['date_from'])) {
-            $query->whereDate('created_at', '>=', $filters['date_from']);
-        }
-
-        if (!empty($filters['date_to'])) {
-            $query->whereDate('created_at', '<=', $filters['date_to']);
-        }
+        $query = $this->energyLogQuery($filters);
 
         $logs = (clone $query)
             ->latest()
             ->paginate(20)
             ->appends($request->query());
 
+        // Tambahan: supaya Blade bisa langsung membaca room_name dan device_name
+        $logs->getCollection()->transform(function ($log) {
+            $log->room_name = $log->device?->room?->name ?? '-';
+            $log->device_name = $log->device?->name ?? '-';
+
+            return $log;
+        });
+
         $devices = Device::with('room')
+            ->whereHas('room', function ($roomQuery) {
+                $roomQuery->where('user_id', Auth::id());
+            })
             ->orderBy('name')
             ->get();
 
@@ -56,9 +56,9 @@ class EnergyController extends Controller
             ->values();
 
         $chart = [
-            'labels' => $chartLogs->map(fn ($log) => $log->created_at->format('H:i')),
-            'power' => $chartLogs->map(fn ($log) => round($log->power, 2)),
-            'energy' => $chartLogs->map(fn ($log) => round($log->energy, 4)),
+            'labels' => $chartLogs->map(fn ($log) => optional($log->created_at)->format('H:i')),
+            'power' => $chartLogs->map(fn ($log) => round($log->power ?? 0, 2)),
+            'energy' => $chartLogs->map(fn ($log) => round($log->energy ?? 0, 4)),
         ];
 
         return view('auth.energy-history', compact(
@@ -78,7 +78,32 @@ class EnergyController extends Controller
             'date_to' => $request->input('date_to'),
         ];
 
-        $query = EnergyLog::with('device.room');
+        $query = $this->energyLogQuery($filters);
+
+        $logs = $query
+            ->latest()
+            ->get()
+            ->map(function ($log) {
+                return [
+                    'Room' => $log->device?->room?->name ?? '-',
+                    'Device' => $log->device?->name ?? '-',
+                    'Waktu' => optional($log->created_at)->format('d/m/Y H:i:s'),
+                    'Voltage (V)' => number_format($log->voltage ?? 0, 2),
+                    'Current (A)' => number_format($log->current ?? 0, 2),
+                    'Power (W)' => number_format($log->power ?? 0, 2),
+                    'Energy (kWh)' => number_format($log->energy_kwh ?? $log->energy ?? 0, 4),
+                ];
+            });
+
+        return response()->json($logs);
+    }
+
+    private function energyLogQuery(array $filters)
+    {
+        $query = EnergyLog::with('device.room')
+            ->whereHas('device.room', function ($roomQuery) {
+                $roomQuery->where('user_id', Auth::id());
+            });
 
         if (!empty($filters['device_id'])) {
             $query->where('device_id', $filters['device_id']);
@@ -92,23 +117,6 @@ class EnergyController extends Controller
             $query->whereDate('created_at', '<=', $filters['date_to']);
         }
 
-        $logs = $query
-            ->latest()
-            ->get()
-            ->map(function ($log) {
-                return [
-                    'id' => $log->id,
-                    'device_id' => $log->device_id,
-                    'device_name' => $log->device?->name ?? '-',
-                    'room_name' => $log->device?->room?->name ?? '-',
-                    'voltage' => $log->voltage ?? 0,
-                    'current' => $log->current ?? 0,
-                    'power' => $log->power ?? 0,
-                    'energy' => $log->energy ?? 0,
-                    'created_at' => $log->created_at?->format('d/m/Y H:i:s'),
-                ];
-            });
-
-        return response()->json($logs);
+        return $query;
     }
 }

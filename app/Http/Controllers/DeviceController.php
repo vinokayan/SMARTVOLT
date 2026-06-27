@@ -26,13 +26,20 @@ class DeviceController extends Controller
 
     public function store(Request $request)
     {
+        $userRoomIds = Room::where('user_id', Auth::id())->pluck('id')->toArray();
+
         $validated = $request->validate([
-            'room_id' => ['required', 'exists:rooms,id'],
+            'room_id' => [
+                'required',
+                Rule::exists('rooms', 'id')->where(function ($query) {
+                    return $query->where('user_id', Auth::id());
+                }),
+            ],
             'name' => [
                 'required',
                 'string',
                 'max:100',
-                Rule::unique('devices')->where(function ($query) use ($request) {
+                Rule::unique('devices', 'name')->where(function ($query) use ($request) {
                     return $query->where('room_id', $request->room_id);
                 }),
             ],
@@ -40,7 +47,9 @@ class DeviceController extends Controller
                 'required',
                 'string',
                 'max:100',
-                'unique:devices,esp32_device_id',
+                Rule::unique('devices', 'esp32_device_id')->where(function ($query) use ($userRoomIds) {
+                    return $query->whereIn('room_id', $userRoomIds);
+                }),
             ],
             'type' => ['nullable', 'string', 'max:100'],
         ], [
@@ -49,14 +58,12 @@ class DeviceController extends Controller
             'name.required' => 'Device name is required.',
             'name.unique' => 'Device name already exists in this room.',
             'esp32_device_id.required' => 'Device Key is required.',
-            'esp32_device_id.unique' => 'Device Key is already used.',
+            'esp32_device_id.unique' => 'Device Key is already used in your account.',
         ]);
 
-        $room = Room::findOrFail($validated['room_id']);
-
-        if ($room->user_id !== Auth::id()) {
-            abort(403, 'You do not have access to this room.');
-        }
+        $room = Room::where('id', $validated['room_id'])
+            ->where('user_id', Auth::id())
+            ->firstOrFail();
 
         Device::create([
             'room_id' => $room->id,
@@ -77,12 +84,14 @@ class DeviceController extends Controller
             abort(403, 'You do not have access to this device.');
         }
 
+        $userRoomIds = Room::where('user_id', Auth::id())->pluck('id')->toArray();
+
         $validated = $request->validate([
             'name' => [
                 'required',
                 'string',
                 'max:100',
-                Rule::unique('devices')
+                Rule::unique('devices', 'name')
                     ->where(function ($query) use ($device) {
                         return $query->where('room_id', $device->room_id);
                     })
@@ -93,6 +102,9 @@ class DeviceController extends Controller
                 'string',
                 'max:100',
                 Rule::unique('devices', 'esp32_device_id')
+                    ->where(function ($query) use ($userRoomIds) {
+                        return $query->whereIn('room_id', $userRoomIds);
+                    })
                     ->ignore($device->id),
             ],
             'type' => ['nullable', 'string', 'max:100'],
@@ -100,7 +112,7 @@ class DeviceController extends Controller
             'name.required' => 'Device name is required.',
             'name.unique' => 'Device name already exists in this room.',
             'esp32_device_id.required' => 'Device Key is required.',
-            'esp32_device_id.unique' => 'Device Key is already used.',
+            'esp32_device_id.unique' => 'Device Key is already used in your account.',
         ]);
 
         $device->update([
@@ -143,9 +155,17 @@ class DeviceController extends Controller
             ]);
         }
 
-        $topic = 'smartvolt/control/' . $device->esp32_device_id;
+        /*
+         * Topic lama:
+         * smartvolt/control/{device_key}
+         *
+         * Topic baru untuk multi-user:
+         * smartvolt/user/{user_id}/control/{device_key}
+         */
+        $topic = 'smartvolt/user/' . Auth::id() . '/control/' . $device->esp32_device_id;
 
         $payload = json_encode([
+            'user_id' => Auth::id(),
             'esp32_device_id' => $device->esp32_device_id,
             'device_id' => $device->id,
             'device_name' => $device->name,
