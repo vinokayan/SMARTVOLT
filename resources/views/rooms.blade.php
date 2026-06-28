@@ -571,9 +571,27 @@
                                                             type="text"
                                                             name="esp32_device_id"
                                                             class="sv-form-input"
-                                                            placeholder="Example: SV-001"
+                                                            placeholder="Example: 2"
+                                                            value="{{ old('esp32_device_id') }}"
                                                             required
                                                         >
+                                                        <div class="sv-form-helper">
+                                                            Device Key digunakan untuk kontrol relay ESP32, contoh: 2 atau 4.
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="sv-form-group">
+                                                        <label class="sv-form-label">Sensor ID</label>
+                                                        <input
+                                                            type="text"
+                                                            name="esp_unit_id"
+                                                            class="sv-form-input"
+                                                            placeholder="Example: SV-001"
+                                                            value="{{ old('esp_unit_id') }}"
+                                                        >
+                                                        <div class="sv-form-helper">
+                                                            Sensor ID harus sama dengan unitId di kode Arduino agar terbaca di Energy History.
+                                                        </div>
                                                     </div>
 
                                                     <button type="submit" class="sv-primary-btn">
@@ -593,6 +611,9 @@
                                                                 <h5 class="sv-device-box-title">{{ $device->name }}</h5>
                                                                 <div class="sv-device-box-meta">
                                                                     Key: {{ $device->esp32_device_id ?: '-' }}
+                                                                </div>
+                                                                <div class="sv-device-box-meta">
+                                                                    Sensor ID: {{ $device->esp_unit_id ?: '-' }}
                                                                 </div>
                                                             </div>
 
@@ -653,9 +674,26 @@
                                                                         name="esp32_device_id"
                                                                         class="sv-form-input"
                                                                         value="{{ $device->esp32_device_id }}"
-                                                                        placeholder="Example: SV-001 or main-light"
+                                                                        placeholder="Example: 2"
                                                                         required
                                                                     >
+                                                                    <div class="sv-form-helper">
+                                                                        Device Key digunakan untuk kontrol relay ESP32.
+                                                                    </div>
+                                                                </div>
+
+                                                                <div class="sv-form-group">
+                                                                    <label class="sv-form-label">Sensor ID</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        name="esp_unit_id"
+                                                                        class="sv-form-input"
+                                                                        value="{{ $device->esp_unit_id }}"
+                                                                        placeholder="Example: SV-001"
+                                                                    >
+                                                                    <div class="sv-form-helper">
+                                                                        Sensor ID harus sama dengan unitId di kode Arduino.
+                                                                    </div>
                                                                 </div>
 
                                                                 <div class="sv-form-actions">

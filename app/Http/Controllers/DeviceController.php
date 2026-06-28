@@ -26,7 +26,9 @@ class DeviceController extends Controller
 
     public function store(Request $request)
     {
-        $userRoomIds = Room::where('user_id', Auth::id())->pluck('id')->toArray();
+        $userRoomIds = Room::where('user_id', Auth::id())
+            ->pluck('id')
+            ->toArray();
 
         $validated = $request->validate([
             'room_id' => [
@@ -35,6 +37,7 @@ class DeviceController extends Controller
                     return $query->where('user_id', Auth::id());
                 }),
             ],
+
             'name' => [
                 'required',
                 'string',
@@ -43,6 +46,7 @@ class DeviceController extends Controller
                     return $query->where('room_id', $request->room_id);
                 }),
             ],
+
             'esp32_device_id' => [
                 'required',
                 'string',
@@ -51,14 +55,30 @@ class DeviceController extends Controller
                     return $query->whereIn('room_id', $userRoomIds);
                 }),
             ],
-            'type' => ['nullable', 'string', 'max:100'],
+
+            'esp_unit_id' => [
+                'nullable',
+                'string',
+                'max:100',
+                Rule::unique('devices', 'esp_unit_id'),
+            ],
+
+            'type' => [
+                'nullable',
+                'string',
+                'max:100',
+            ],
         ], [
             'room_id.required' => 'Room is required.',
             'room_id.exists' => 'The selected room is invalid.',
+
             'name.required' => 'Device name is required.',
             'name.unique' => 'Device name already exists in this room.',
+
             'esp32_device_id.required' => 'Device Key is required.',
             'esp32_device_id.unique' => 'Device Key is already used in your account.',
+
+            'esp_unit_id.unique' => 'Sensor ID is already used by another device.',
         ]);
 
         $room = Room::where('id', $validated['room_id'])
@@ -70,6 +90,7 @@ class DeviceController extends Controller
             'name' => $validated['name'],
             'type' => $validated['type'] ?? null,
             'esp32_device_id' => $validated['esp32_device_id'],
+            'esp_unit_id' => $validated['esp_unit_id'] ?? null,
             'status' => false,
         ]);
 
@@ -84,7 +105,9 @@ class DeviceController extends Controller
             abort(403, 'You do not have access to this device.');
         }
 
-        $userRoomIds = Room::where('user_id', Auth::id())->pluck('id')->toArray();
+        $userRoomIds = Room::where('user_id', Auth::id())
+            ->pluck('id')
+            ->toArray();
 
         $validated = $request->validate([
             'name' => [
@@ -97,6 +120,7 @@ class DeviceController extends Controller
                     })
                     ->ignore($device->id),
             ],
+
             'esp32_device_id' => [
                 'required',
                 'string',
@@ -107,17 +131,33 @@ class DeviceController extends Controller
                     })
                     ->ignore($device->id),
             ],
-            'type' => ['nullable', 'string', 'max:100'],
+
+            'esp_unit_id' => [
+                'nullable',
+                'string',
+                'max:100',
+                Rule::unique('devices', 'esp_unit_id')->ignore($device->id),
+            ],
+
+            'type' => [
+                'nullable',
+                'string',
+                'max:100',
+            ],
         ], [
             'name.required' => 'Device name is required.',
             'name.unique' => 'Device name already exists in this room.',
+
             'esp32_device_id.required' => 'Device Key is required.',
             'esp32_device_id.unique' => 'Device Key is already used in your account.',
+
+            'esp_unit_id.unique' => 'Sensor ID is already used by another device.',
         ]);
 
         $device->update([
             'name' => $validated['name'],
             'esp32_device_id' => $validated['esp32_device_id'],
+            'esp_unit_id' => $validated['esp_unit_id'] ?? null,
             'type' => $validated['type'] ?? $device->type,
         ]);
 
@@ -147,7 +187,7 @@ class DeviceController extends Controller
             abort(403, 'You do not have access to this device.');
         }
 
-        $newStatus = ! (bool) $device->status;
+        $newStatus = !(bool) $device->status;
 
         if (!$device->esp32_device_id) {
             return back()->withErrors([
@@ -155,18 +195,12 @@ class DeviceController extends Controller
             ]);
         }
 
-        /*
-         * Topic lama:
-         * smartvolt/control/{device_key}
-         *
-         * Topic baru untuk multi-user:
-         * smartvolt/user/{user_id}/control/{device_key}
-         */
         $topic = 'smartvolt/user/' . Auth::id() . '/control/' . $device->esp32_device_id;
 
         $payload = json_encode([
             'user_id' => Auth::id(),
             'esp32_device_id' => $device->esp32_device_id,
+            'esp_unit_id' => $device->esp_unit_id,
             'device_id' => $device->id,
             'device_name' => $device->name,
             'relay' => $newStatus,
