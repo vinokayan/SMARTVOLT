@@ -5,14 +5,21 @@ namespace App\Http\Controllers;
 use App\Models\Device;
 use App\Models\Room;
 use App\Models\SystemSetting;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
-use App\Models\User;
 
 class SettingsController extends Controller
 {
+    private function ensureAdvancedMode()
+    {
+        if (! session('advanced_mode')) {
+            abort(403, 'Mode Lanjutan belum aktif.');
+        }
+    }
+
     public function index()
     {
         $user = Auth::user();
@@ -43,7 +50,7 @@ class SettingsController extends Controller
             $selectedDevice = $devices->firstWhere('id', $systemSetting->device_id);
         }
 
-        if (!$selectedDevice) {
+        if (! $selectedDevice) {
             $selectedDevice = $devices->first();
         }
 
@@ -58,48 +65,61 @@ class SettingsController extends Controller
         return view('settings.index', compact(
             'user',
             'rooms',
+            'devices',
             'systemSetting',
             'selectedDevice',
             'latestLog'
         ));
     }
 
-   public function updateProfile(Request $request)
-{
-    $validated = $request->validate([
-        'name' => 'required|string|max:255',
-        'email' => 'required|email|max:255|unique:users,email,' . Auth::id(),
-    ]);
+    public function updateProfile(Request $request)
+    {
+        $user = Auth::user();
 
-    $user = User::findOrFail(Auth::id());
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => [
+                'required',
+                'email',
+                'max:255',
+                Rule::unique('users', 'email')->ignore($user->id),
+            ],
+        ], [
+            'name.required' => 'Nama wajib diisi.',
+            'email.required' => 'Email wajib diisi.',
+            'email.email' => 'Format email tidak valid.',
+            'email.unique' => 'Email sudah digunakan oleh akun lain.',
+        ]);
 
-    $user->update([
-        'name' => $validated['name'],
-        'email' => $validated['email'],
-    ]);
+        User::where('id', $user->id)->update([
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+        ]);
 
-    return redirect()->back()->with('success', 'Profile berhasil diperbarui.');
-}
+        return back()->with('status', 'Akun berhasil diperbarui.');
+    }
 
     public function updatePassword(Request $request)
     {
+        $user = Auth::user();
+
         $validated = $request->validate([
             'current_password' => ['required'],
             'password' => ['required', 'string', 'min:6', 'confirmed'],
         ], [
-            'current_password.required' => 'Password lama wajib diisi.',
+            'current_password.required' => 'Password saat ini wajib diisi.',
             'password.required' => 'Password baru wajib diisi.',
             'password.min' => 'Password baru minimal 6 karakter.',
-            'password.confirmed' => 'Konfirmasi password baru tidak sesuai.',
+            'password.confirmed' => 'Konfirmasi password tidak sesuai.',
         ]);
 
-        if (!Hash::check($validated['current_password'], Auth::user()->password)) {
+        if (! Hash::check($validated['current_password'], $user->password)) {
             return back()->withErrors([
-                'current_password' => 'Password lama salah.',
+                'current_password' => 'Password saat ini salah.',
             ]);
         }
 
-        Auth::user()->update([
+        $user->update([
             'password' => Hash::make($validated['password']),
         ]);
 
@@ -108,6 +128,8 @@ class SettingsController extends Controller
 
     public function updateSystem(Request $request)
     {
+        $this->ensureAdvancedMode();
+
         $user = Auth::user();
 
         $deviceId = $request->input('device_id');
@@ -131,37 +153,53 @@ class SettingsController extends Controller
                 }),
             ],
             'device_name' => ['required', 'string', 'max:100'],
+            'device_type' => ['nullable', 'string', 'max:50'],
             'esp32_device_id' => [
                 'nullable',
                 'string',
                 'max:100',
                 Rule::unique('devices', 'esp32_device_id')->ignore($device?->id),
             ],
+            'esp_unit_id' => [
+                'nullable',
+                'string',
+                'max:100',
+                Rule::unique('devices', 'esp_unit_id')->ignore($device?->id),
+            ],
             'electricity_tariff' => ['required', 'numeric', 'min:0'],
             'power_limit' => ['required', 'integer', 'min:1'],
             'refresh_interval' => ['required', 'integer', 'min:1', 'max:60'],
         ], [
-            'room_id.required' => 'Room wajib dipilih.',
-            'device_name.required' => 'Nama device wajib diisi.',
-            'esp32_device_id.unique' => 'ESP32 Device ID sudah digunakan.',
+            'room_id.required' => 'Ruangan wajib dipilih.',
+            'room_id.exists' => 'Ruangan tidak valid.',
+            'device_name.required' => 'Nama perangkat wajib diisi.',
+            'esp32_device_id.unique' => 'Kode device / relay sudah digunakan.',
+            'esp_unit_id.unique' => 'Kode pengukur listrik sudah digunakan.',
             'electricity_tariff.required' => 'Tarif listrik wajib diisi.',
-            'power_limit.required' => 'Power limit wajib diisi.',
-            'refresh_interval.required' => 'Refresh interval wajib diisi.',
-            'refresh_interval.max' => 'Refresh interval maksimal 60 detik.',
+            'electricity_tariff.numeric' => 'Tarif listrik harus berupa angka.',
+            'power_limit.required' => 'Batas daya wajib diisi.',
+            'power_limit.integer' => 'Batas daya harus berupa angka.',
+            'refresh_interval.required' => 'Interval refresh wajib diisi.',
+            'refresh_interval.integer' => 'Interval refresh harus berupa angka.',
+            'refresh_interval.max' => 'Interval refresh maksimal 60 detik.',
         ]);
 
-        if (!$device) {
+        if (! $device) {
             $device = Device::create([
                 'room_id' => $validated['room_id'],
                 'name' => $validated['device_name'],
+                'type' => $validated['device_type'] ?? 'other',
                 'esp32_device_id' => $validated['esp32_device_id'] ?? null,
+                'esp_unit_id' => $validated['esp_unit_id'] ?? null,
                 'status' => false,
             ]);
         } else {
             $device->update([
                 'room_id' => $validated['room_id'],
                 'name' => $validated['device_name'],
+                'type' => $validated['device_type'] ?? $device->type,
                 'esp32_device_id' => $validated['esp32_device_id'] ?? null,
+                'esp_unit_id' => $validated['esp_unit_id'] ?? null,
             ]);
         }
 
@@ -175,6 +213,8 @@ class SettingsController extends Controller
             ]
         );
 
-        return back()->with('status', 'System settings berhasil diperbarui.');
+        return back()
+            ->with('status', 'Pengaturan teknis berhasil diperbarui.')
+            ->with('open_advanced_panel', true);
     }
 }

@@ -7,65 +7,133 @@ use App\Http\Controllers\RoomController;
 use App\Http\Controllers\DeviceController;
 use App\Http\Controllers\EnergyController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\AdvancedModeController;
+
+/*
+|--------------------------------------------------------------------------
+| Default Route
+|--------------------------------------------------------------------------
+*/
 
 Route::redirect('/', '/login');
 
+/*
+|--------------------------------------------------------------------------
+| Guest Routes
+|--------------------------------------------------------------------------
+| Hanya untuk user yang belum login.
+*/
+
 Route::middleware('guest')->group(function () {
     // LOGIN
-    Route::get('/login', [AuthController::class, 'showLoginForm'])->name('login');
+    Route::get('/login', [AuthController::class, 'showLoginForm'])
+        ->name('login');
 
-    // route utama login
-    Route::post('/login', [AuthController::class, 'login'])->name('login.process');
+    Route::post('/login', [AuthController::class, 'login'])
+        ->name('login.process');
 
-    // route tambahan supaya file blade yang memanggil route('login.post') tidak error
-    Route::post('/login', [AuthController::class, 'login'])->name('login.post');
+    // Alias tambahan agar blade yang memakai route('login.post') tetap aman
+    Route::post('/login-post', [AuthController::class, 'login'])
+        ->name('login.post');
 
     // REGISTER
-    Route::get('/register', [AuthController::class, 'showRegisterForm'])->name('register');
-    Route::post('/register', [AuthController::class, 'register'])->name('register.process');
+    Route::get('/register', [AuthController::class, 'showRegisterForm'])
+        ->name('register');
 
-    // route tambahan kalau ada blade yang memanggil route('register.post')
-    Route::post('/register', [AuthController::class, 'register'])->name('register.post');
+    Route::post('/register', [AuthController::class, 'register'])
+        ->name('register.process');
+
+    // Alias tambahan agar blade yang memakai route('register.post') tetap aman
+    Route::post('/register-post', [AuthController::class, 'register'])
+        ->name('register.post');
 
     // FORGOT PASSWORD
-    Route::get('/forgot-password', [AuthController::class, 'showForgotPasswordForm'])->name('password.request');
-    Route::post('/forgot-password', [AuthController::class, 'sendResetLink'])->name('password.email');
+    Route::get('/forgot-password', [AuthController::class, 'showForgotPasswordForm'])
+        ->name('password.request');
+
+    Route::post('/forgot-password', [AuthController::class, 'sendResetLink'])
+        ->name('password.email');
 
     // RESET PASSWORD
-    Route::get('/reset-password/{token}', [AuthController::class, 'showResetPasswordForm'])->name('password.reset');
-    Route::post('/reset-password', [AuthController::class, 'resetPassword'])->name('password.update');
+    Route::get('/reset-password/{token}', [AuthController::class, 'showResetPasswordForm'])
+        ->name('password.reset');
+
+    Route::post('/reset-password', [AuthController::class, 'resetPassword'])
+        ->name('password.update');
 });
+
+/*
+|--------------------------------------------------------------------------
+| Auth Routes
+|--------------------------------------------------------------------------
+| Hanya untuk user yang sudah login.
+*/
 
 Route::middleware('auth')->group(function () {
     // DASHBOARD
-    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
-    Route::get('/dashboard/data', [DashboardController::class, 'data'])->name('dashboard.data');
+    Route::get('/dashboard', [DashboardController::class, 'index'])
+        ->name('dashboard');
+
+    Route::get('/dashboard/data', [DashboardController::class, 'data'])
+        ->name('dashboard.data');
 
     // ROOMS
-    Route::get('/rooms', [RoomController::class, 'index'])->name('rooms');
-    Route::post('/rooms', [RoomController::class, 'store'])->name('rooms.store');
-    Route::put('/rooms/{room}', [RoomController::class, 'update'])->name('rooms.update');
-    Route::delete('/rooms/{room}', [RoomController::class, 'destroy'])->name('rooms.destroy');
+    Route::get('/rooms', [RoomController::class, 'index'])
+        ->name('rooms');
+
+    Route::post('/rooms', [RoomController::class, 'store'])
+        ->name('rooms.store');
+
+    Route::put('/rooms/{room}', [RoomController::class, 'update'])
+        ->name('rooms.update');
+
+    Route::delete('/rooms/{room}', [RoomController::class, 'destroy'])
+        ->name('rooms.destroy');
 
     // DEVICES
-    Route::get('/devices', [DeviceController::class, 'index'])->name('devices');
-    Route::post('/devices', [DeviceController::class, 'store'])->name('devices.store');
-    Route::put('/devices/{device}', [DeviceController::class, 'update'])->name('devices.update');
-    Route::delete('/devices/{device}', [DeviceController::class, 'destroy'])->name('devices.destroy');
-    Route::post('/devices/{device}/toggle', [DeviceController::class, 'toggle'])->name('devices.toggle');
+    Route::get('/devices', [DeviceController::class, 'index'])
+        ->name('devices');
 
-    // ENERGY
-    Route::get('/energy-history', [EnergyController::class, 'index'])->name('energy.history');
+    Route::post('/devices', [DeviceController::class, 'store'])
+        ->name('devices.store');
+
+    Route::put('/devices/{device}', [DeviceController::class, 'update'])
+        ->name('devices.update');
+
+    Route::delete('/devices/{device}', [DeviceController::class, 'destroy'])
+        ->name('devices.destroy');
+
+    Route::post('/devices/{device}/toggle', [DeviceController::class, 'toggle'])
+        ->name('devices.toggle');
+
+    // ENERGY HISTORY
     Route::get('/energy-history', [EnergyController::class, 'index'])
-    ->name('energy.history');
+        ->name('energy.history');
 
-Route::get('/energy-history/export', [EnergyController::class, 'export'])
-    ->name('energy.history.export');
-   // SETTINGS
-Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
-Route::put('/settings/profile', [SettingsController::class, 'updateProfile'])->name('settings.profile.update');
-Route::put('/settings/password', [SettingsController::class, 'updatePassword'])->name('settings.password.update');
-Route::put('/settings/system', [SettingsController::class, 'updateSystem'])->name('settings.system.update');
+    Route::get('/energy-history/export', [EnergyController::class, 'export'])
+        ->name('energy.history.export');
+
+    // SETTINGS
+    Route::get('/settings', [SettingsController::class, 'index'])
+        ->name('settings');
+
+    Route::put('/settings/profile', [SettingsController::class, 'updateProfile'])
+        ->name('settings.profile.update');
+
+    Route::put('/settings/password', [SettingsController::class, 'updatePassword'])
+        ->name('settings.password.update');
+
+    Route::put('/settings/system', [SettingsController::class, 'updateSystem'])
+        ->name('settings.system.update');
+
+    // ADVANCED MODE
+    Route::post('/mode-lanjutan/aktif', [AdvancedModeController::class, 'enable'])
+        ->name('advanced-mode.enable');
+
+    Route::post('/mode-lanjutan/nonaktif', [AdvancedModeController::class, 'disable'])
+        ->name('advanced-mode.disable');
+
     // LOGOUT
-    Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+    Route::post('/logout', [AuthController::class, 'logout'])
+        ->name('logout');
 });

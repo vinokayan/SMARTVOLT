@@ -8,6 +8,20 @@ use Illuminate\Support\Facades\Auth;
 
 class RoomController extends Controller
 {
+    private function ensureAdvancedMode()
+    {
+        if (! session('advanced_mode')) {
+            abort(403, 'Mode Lanjutan belum aktif.');
+        }
+    }
+
+    private function ensureRoomOwner(Room $room)
+    {
+        if ((int) $room->user_id !== (int) Auth::id()) {
+            abort(403, 'Anda tidak punya akses ke ruangan ini.');
+        }
+    }
+
     public function index()
     {
         $rooms = Room::withCount('devices')
@@ -23,53 +37,97 @@ class RoomController extends Controller
 
     public function store(Request $request)
     {
+        $this->ensureAdvancedMode();
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:100'],
         ], [
-            'name.required' => 'Nama room wajib diisi.',
-            'name.max' => 'Nama room maksimal 100 karakter.',
+            'name.required' => 'Nama ruangan wajib diisi.',
+            'name.max' => 'Nama ruangan maksimal 100 karakter.',
         ]);
 
-        Room::create([
+        $room = Room::create([
             'user_id' => Auth::id(),
             'name' => $validated['name'],
             'status' => true,
         ]);
 
-        return redirect()->route('rooms')->with('status', 'Room berhasil ditambahkan.');
+        if ($request->input('return_to') === 'settings') {
+            return redirect()
+                ->route('settings')
+                ->with('status', 'Ruangan berhasil ditambahkan.')
+                ->with('open_advanced_panel', true)
+                ->with('selected_room_id', $room->id);
+        }
+
+        return redirect()
+            ->route('rooms')
+            ->with('status', 'Ruangan berhasil ditambahkan.');
     }
 
     public function update(Request $request, Room $room)
     {
-        if ($room->user_id !== Auth::id()) {
-            abort(403, 'Anda tidak punya akses ke room ini.');
-        }
+        $this->ensureAdvancedMode();
+        $this->ensureRoomOwner($room);
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:100'],
+        ], [
+            'name.required' => 'Nama ruangan wajib diisi.',
+            'name.max' => 'Nama ruangan maksimal 100 karakter.',
         ]);
 
         $room->update([
             'name' => $validated['name'],
         ]);
 
-        return redirect()->route('rooms')->with('status', 'Room berhasil diperbarui.');
-    }
-
-    public function destroy(Room $room)
-    {
-        if ($room->user_id !== Auth::id()) {
-            abort(403, 'Anda tidak punya akses ke room ini.');
+        if ($request->input('return_to') === 'settings') {
+            return redirect()
+                ->route('settings')
+                ->with('status', 'Ruangan berhasil diperbarui.')
+                ->with('open_advanced_panel', true)
+                ->with('selected_room_id', $room->id);
         }
 
+        return redirect()
+            ->route('rooms')
+            ->with('status', 'Ruangan berhasil diperbarui.');
+    }
+
+    public function destroy(Request $request, Room $room)
+    {
+        $this->ensureAdvancedMode();
+        $this->ensureRoomOwner($room);
+
         if ($room->devices()->count() > 0) {
-            return redirect()->route('rooms')->withErrors([
-                'room' => 'Room tidak bisa dihapus karena masih memiliki device.',
-            ]);
+            if ($request->input('return_to') === 'settings') {
+                return redirect()
+                    ->route('settings')
+                    ->withErrors([
+                        'room' => 'Ruangan tidak bisa dihapus karena masih memiliki perangkat.',
+                    ])
+                    ->with('open_advanced_panel', true)
+                    ->with('selected_room_id', $room->id);
+            }
+
+            return redirect()
+                ->route('rooms')
+                ->withErrors([
+                    'room' => 'Ruangan tidak bisa dihapus karena masih memiliki perangkat.',
+                ]);
         }
 
         $room->delete();
 
-        return redirect()->route('rooms')->with('status', 'Room berhasil dihapus.');
+        if ($request->input('return_to') === 'settings') {
+            return redirect()
+                ->route('settings')
+                ->with('status', 'Ruangan berhasil dihapus.')
+                ->with('open_advanced_panel', true);
+        }
+
+        return redirect()
+            ->route('rooms')
+            ->with('status', 'Ruangan berhasil dihapus.');
     }
 }
