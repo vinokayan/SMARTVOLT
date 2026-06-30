@@ -91,7 +91,7 @@ class DeviceController extends Controller
         ]);
 
         $this->validateRelayCodeIsUnique($validated['relay_code']);
-        $this->validateSensorCodeIsUnique($validated['esp_unit_id']);
+        // Kode sensor tidak dibuat unik agar satu PZEM/sensor bisa dipakai beberapa perangkat.
 
         $data = [
             'room_id' => $room->id,
@@ -165,7 +165,7 @@ class DeviceController extends Controller
         ]);
 
         $this->validateRelayCodeIsUnique($validated['relay_code'], $device->id);
-        $this->validateSensorCodeIsUnique($validated['esp_unit_id'], $device->id);
+        // Kode sensor boleh sama untuk beberapa perangkat jika memakai satu sensor PZEM.
 
         $data = [
             'name' => $validated['name'],
@@ -217,81 +217,93 @@ class DeviceController extends Controller
 
     public function toggle(Request $request, Device $device)
     {
-        $this->ensureDeviceOwner($device);
-
-        $isCurrentlyOn = (bool) $device->status;
-        $newStatus = ! $isCurrentlyOn;
-
-        $relayCode = $device->relay_code ?? $device->esp32_device_id ?? null;
-
-        if (! $relayCode) {
-            return back()->withErrors([
-                'device' => 'Perangkat belum memiliki kode relay.',
-            ]);
-        }
-
-        $topic = 'smartvolt/user/' . Auth::id() . '/control/' . $relayCode;
-
-        $payload = json_encode([
-            'user_id' => Auth::id(),
-            'device_id' => $device->id,
-            'device_name' => $device->name,
-            'relay_code' => $relayCode,
-            'esp32_device_id' => $relayCode,
-            'esp_unit_id' => $device->esp_unit_id ?? null,
-            'relay' => $newStatus,
-            'status' => $newStatus ? 'ON' : 'OFF',
-        ]);
-
         try {
+            $this->ensureDeviceOwner($device);
+
+            $isCurrentlyOn = $this->isDeviceOn($device->status);
+            $newStatus = ! $isCurrentlyOn;
+
+            $relayCode = $device->relay_code ?? $device->esp32_device_id ?? null;
+
+            if (! $relayCode) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Perangkat belum memiliki kode relay.',
+                ], 422);
+            }
+
+            $topic = 'smartvolt/user/' . Auth::id() . '/control/' . $relayCode;
+
+            $payload = json_encode([
+                'user_id' => Auth::id(),
+                'device_id' => $device->id,
+                'device_name' => $device->name,
+                'relay_code' => $relayCode,
+                'esp32_device_id' => $relayCode,
+                'esp_unit_id' => $device->esp_unit_id ?? null,
+                'relay' => $newStatus,
+                'status' => $newStatus ? 'ON' : 'OFF',
+            ]);
+
             MQTT::publish($topic, $payload, 0);
 
             $device->update([
                 'status' => $newStatus,
             ]);
 
-            return back()
-                ->with('success', $newStatus
+            return response()->json([
+                'success' => true,
+                'message' => $newStatus
                     ? $device->name . ' berhasil dinyalakan.'
-                    : $device->name . ' berhasil dimatikan.'
-                )
-                ->with('status', $newStatus
-                    ? $device->name . ' berhasil dinyalakan.'
-                    : $device->name . ' berhasil dimatikan.'
-                )
-                ->with('selected_room_id', $device->room_id)
-                ->with('open_advanced_panel', true);
+                    : $device->name . ' berhasil dimatikan.',
+                'device_id' => $device->id,
+                'room_id' => $device->room_id,
+                'status' => $newStatus ? 'on' : 'off',
+                'label' => $newStatus ? 'Nyala' : 'Mati',
+                'mqtt_topic' => $topic,
+                'mqtt_payload' => json_decode($payload, true),
+            ]);
         } catch (\Throwable $e) {
-            Log::error('Gagal mengirim perintah MQTT', [
-                'topic' => $topic,
-                'payload' => $payload,
+            Log::error('Gagal toggle perangkat', [
+                'device_id' => $device->id ?? null,
                 'error' => $e->getMessage(),
             ]);
 
-            return back()->withErrors([
-                'mqtt' => 'Gagal mengirim perintah ke perangkat. Pastikan broker MQTT berjalan.',
-            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengirim perintah ke perangkat. Pastikan broker MQTT berjalan dan konfigurasi MQTT benar.',
+                'error' => $e->getMessage(),
+            ], 500);
         }
     }
 
     private function validateRelayCodeIsUnique(string $relayCode, ?int $ignoreDeviceId = null): void
     {
-        $column = null;
+        $columns = [];
 
         if (Schema::hasColumn('devices', 'relay_code')) {
-            $column = 'relay_code';
-        } elseif (Schema::hasColumn('devices', 'esp32_device_id')) {
-            $column = 'esp32_device_id';
+            $columns[] = 'relay_code';
         }
 
-        if (! $column) {
+        if (Schema::hasColumn('devices', 'esp32_device_id')) {
+            $columns[] = 'esp32_device_id';
+        }
+
+        if (empty($columns)) {
             return;
         }
 
-        $query = Device::where($column, $relayCode)
-            ->whereHas('room', function ($query) {
-                $query->where('user_id', Auth::id());
-            });
+        $query = Device::whereHas('room', function ($query) {
+            $query->where('user_id', Auth::id());
+        })->where(function ($query) use ($columns, $relayCode) {
+            foreach ($columns as $index => $column) {
+                if ($index === 0) {
+                    $query->where($column, $relayCode);
+                } else {
+                    $query->orWhere($column, $relayCode);
+                }
+            }
+        });
 
         if ($ignoreDeviceId) {
             $query->where('id', '!=', $ignoreDeviceId);
@@ -304,23 +316,26 @@ class DeviceController extends Controller
         }
     }
 
-    private function validateSensorCodeIsUnique(string $sensorCode, ?int $ignoreDeviceId = null): void
+    private function isDeviceOn($status): bool
     {
-        if (! Schema::hasColumn('devices', 'esp_unit_id')) {
-            return;
+        if (is_bool($status)) {
+            return $status;
         }
 
-        $query = Device::where('esp_unit_id', $sensorCode);
-
-        if ($ignoreDeviceId) {
-            $query->where('id', '!=', $ignoreDeviceId);
+        if (is_numeric($status)) {
+            return (int) $status === 1;
         }
 
-        if ($query->exists()) {
-            throw ValidationException::withMessages([
-                'esp_unit_id' => 'Kode sensor sudah digunakan oleh perangkat lain.',
-            ]);
-        }
+        $status = strtolower((string) $status);
+
+        return in_array($status, [
+            'on',
+            'nyala',
+            'active',
+            'aktif',
+            'true',
+            '1',
+        ], true);
     }
 
     private function redirectAfterAction(Request $request, string $message, ?int $roomId = null)
@@ -332,6 +347,14 @@ class DeviceController extends Controller
                 ->with('status', $message)
                 ->with('open_advanced_panel', true)
                 ->with('selected_room_id', $roomId);
+        }
+
+        if ($request->input('return_to') === 'rooms') {
+            return redirect()
+                ->route('rooms')
+                ->with('success', $message)
+                ->with('status', $message)
+                ->with('open_room_id', $roomId);
         }
 
         return redirect()
