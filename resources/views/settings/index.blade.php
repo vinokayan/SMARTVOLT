@@ -131,7 +131,8 @@
         }
 
         .sv-primary-btn,
-        .sv-secondary-btn {
+        .sv-secondary-btn,
+        .sv-danger-btn {
             border: none;
             border-radius: 16px;
             padding: 13px 18px;
@@ -144,6 +145,7 @@
             gap: 8px;
             transition: 0.2s ease;
             color: #fff;
+            text-decoration: none;
         }
 
         .sv-primary-btn {
@@ -155,8 +157,15 @@
             border: 1px solid rgba(255,255,255,0.12);
         }
 
+        .sv-danger-btn {
+            background: rgba(239, 68, 68, 0.16);
+            border: 1px solid rgba(239, 68, 68, 0.32);
+            color: #fecaca;
+        }
+
         .sv-primary-btn:hover,
-        .sv-secondary-btn:hover {
+        .sv-secondary-btn:hover,
+        .sv-danger-btn:hover {
             transform: translateY(-1px);
         }
 
@@ -227,7 +236,7 @@
         }
 
         .sv-modal-head,
-        .sv-drawer-head {
+        .sv-tech-head {
             display: flex;
             align-items: flex-start;
             justify-content: space-between;
@@ -236,15 +245,15 @@
         }
 
         .sv-modal-head h3,
-        .sv-drawer-head h3 {
+        .sv-tech-head h3 {
             margin: 0;
-            font-size: 20px;
+            font-size: 22px;
         }
 
         .sv-close-btn {
-            width: 38px;
-            height: 38px;
-            border-radius: 14px;
+            width: 42px;
+            height: 42px;
+            border-radius: 16px;
             border: 1px solid rgba(255,255,255,0.10);
             background: rgba(255,255,255,0.06);
             color: #fff;
@@ -253,35 +262,118 @@
             align-items: center;
             justify-content: center;
             flex-shrink: 0;
+            font-size: 18px;
         }
 
-        .sv-drawer {
+        .sv-tech-screen {
             position: fixed;
-            right: 18px;
-            top: 18px;
-            bottom: 18px;
-            width: min(480px, calc(100% - 36px));
-            border-radius: 28px;
-            background: rgba(15, 23, 42, 0.98);
-            border: 1px solid rgba(255,255,255,0.12);
-            box-shadow: 0 24px 80px rgba(0,0,0,0.45);
-            z-index: 90;
-            padding: 22px;
-            overflow-y: auto;
+            inset: 0;
+            z-index: 95;
+            background:
+                radial-gradient(circle at top left, rgba(56, 189, 248, 0.16), transparent 34%),
+                radial-gradient(circle at bottom right, rgba(99, 102, 241, 0.16), transparent 36%),
+                rgba(2, 6, 23, 0.98);
             display: none;
+            overflow-y: auto;
+            padding: 26px;
         }
 
-        .sv-drawer.show {
+        .sv-tech-screen.show {
             display: block;
         }
 
+        .sv-tech-container {
+            max-width: 1180px;
+            margin: 0 auto;
+        }
+
+        .sv-tech-card {
+            border-radius: 28px;
+            background: rgba(15, 23, 42, 0.82);
+            border: 1px solid rgba(255,255,255,0.10);
+            padding: 24px;
+            box-shadow: 0 28px 90px rgba(0,0,0,0.34);
+        }
+
+        .sv-tech-layout {
+            display: grid;
+            grid-template-columns: 0.95fr 1.35fr;
+            gap: 18px;
+            align-items: start;
+        }
+
+        .sv-tech-section {
+            border-radius: 24px;
+            background: rgba(255,255,255,0.045);
+            border: 1px solid rgba(255,255,255,0.08);
+            padding: 20px;
+        }
+
         .sv-mini-title {
-            margin: 20px 0 12px;
+            margin: 0 0 14px;
             font-size: 14px;
             color: #dbeafe;
             font-weight: 900;
             text-transform: uppercase;
             letter-spacing: 0.05em;
+        }
+
+        .sv-room-list,
+        .sv-device-list {
+            display: grid;
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .sv-room-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 14px;
+            border-radius: 18px;
+            background: rgba(255,255,255,0.045);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .sv-room-row h4 {
+            margin: 0;
+            font-size: 15px;
+            color: #eef5ff;
+        }
+
+        .sv-room-row p {
+            margin: 4px 0 0;
+            color: #9fb4d4;
+            font-size: 13px;
+        }
+
+        .sv-device-edit-card {
+            display: grid;
+            gap: 14px;
+            padding: 16px;
+            border-radius: 20px;
+            background: rgba(255,255,255,0.045);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .sv-device-edit-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .sv-device-edit-head h4 {
+            margin: 0;
+            color: #eef5ff;
+            font-size: 16px;
+        }
+
+        .sv-device-edit-head p {
+            margin: 4px 0 0;
+            color: #9fb4d4;
+            font-size: 13px;
         }
 
         @media (min-width: 860px) {
@@ -298,14 +390,165 @@
             }
         }
 
-        @media (max-width: 720px) {
-            .sv-drawer {
-                right: 10px;
-                top: 10px;
-                bottom: 10px;
-                width: calc(100% - 20px);
+        @media (max-width: 980px) {
+            .sv-tech-layout {
+                grid-template-columns: 1fr;
             }
         }
+
+        @media (max-width: 720px) {
+            .sv-tech-screen {
+                padding: 12px;
+            }
+
+            .sv-tech-card,
+            .sv-tech-section {
+                padding: 16px;
+            }
+
+            .sv-room-row,
+            .sv-device-edit-head {
+                align-items: stretch;
+                flex-direction: column;
+            }
+        }
+
+        /* ==========================
+           PANEL TEKNISI REVISI
+           ========================== */
+
+        .sv-tech-layout {
+            grid-template-columns: 360px 1fr;
+            gap: 18px;
+        }
+
+        .sv-room-row {
+            cursor: pointer;
+            transition: 0.2s ease;
+        }
+
+        .sv-room-row.active,
+        .sv-room-row:hover {
+            border-color: rgba(90, 198, 255, 0.36);
+            background: rgba(90, 198, 255, 0.08);
+        }
+
+        .sv-room-row button {
+            width: 100%;
+            border: none;
+            background: transparent;
+            color: inherit;
+            text-align: left;
+            padding: 0;
+            cursor: pointer;
+        }
+
+        .sv-room-detail-panel {
+            display: none;
+        }
+
+        .sv-room-detail-panel.active {
+            display: grid;
+            gap: 18px;
+        }
+
+        .sv-selected-room-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 14px;
+            margin-bottom: 16px;
+        }
+
+        .sv-selected-room-head h4 {
+            margin: 0;
+            color: #eef5ff;
+            font-size: 18px;
+        }
+
+        .sv-selected-room-head p {
+            margin: 5px 0 0;
+            color: #9fb4d4;
+            font-size: 13px;
+        }
+
+        .sv-tech-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .sv-edit-panel {
+            display: none;
+            border-radius: 20px;
+            padding: 16px;
+            background: rgba(255,255,255,0.045);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .sv-edit-panel.show {
+            display: block;
+        }
+
+        .sv-device-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .sv-device-summary-grid div {
+            border-radius: 16px;
+            padding: 12px;
+            background: rgba(255,255,255,0.055);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .sv-device-summary-grid span {
+            display: block;
+            margin-bottom: 6px;
+            color: #9fb4d4;
+            font-size: 11px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .sv-device-summary-grid strong {
+            color: #eef5ff;
+            font-size: 14px;
+            word-break: break-word;
+        }
+
+        .sv-device-edit-card .sv-form-stack {
+            margin-top: 0;
+        }
+
+        @media (max-width: 980px) {
+            .sv-tech-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .sv-device-summary-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .sv-selected-room-head {
+                flex-direction: column;
+            }
+
+            .sv-tech-actions {
+                justify-content: flex-start;
+            }
+
+            .sv-device-summary-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
     </style>
 </head>
 
@@ -325,11 +568,6 @@
                 <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">
                     <i class="bi bi-house-door-fill"></i>
                     <span>Beranda</span>
-                </a>
-
-                <a href="{{ route('rooms') }}" class="{{ request()->routeIs('rooms*') ? 'active' : '' }}">
-                    <i class="bi bi-grid-1x2-fill"></i>
-                    <span>Ruangan</span>
                 </a>
 
                 <a href="{{ route('energy.history') }}" class="{{ request()->routeIs('energy.history') ? 'active' : '' }}">
@@ -360,7 +598,12 @@
                 @php
                     $advancedMode = session('advanced_mode', false);
                     $roomsForDevice = $rooms ?? collect();
-                    $selectedRoomId = old('room_id', session('selected_room_id'));
+                    $devicesForEdit = $devices ?? collect();
+                    $selectedRoomId = old('room_id', session('selected_room_id', session('open_room_id')));
+
+                    if (! $selectedRoomId && $roomsForDevice->isNotEmpty()) {
+                        $selectedRoomId = $roomsForDevice->first()->id;
+                    }
                 @endphp
 
                 @if(session('status'))
@@ -406,9 +649,9 @@
                             </div>
                         </div>
 
-                        <div class="sv-feature-card sv-glass" onclick="openPinModal()">
+                        <div class="sv-feature-card sv-glass" onclick="{{ $advancedMode ? 'openTechPanel()' : 'openPinModal()' }}">
                             <div>
-                                <h3>Mode Lanjutan</h3>
+                                <h3>Konfigurasi Sistem</h3>
                                 <p>Masuk hanya untuk teknisi. Perubahan yang salah dapat membuat perangkat tidak berjalan.</p>
                             </div>
 
@@ -424,11 +667,6 @@
                 <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">
                     <i class="bi bi-house-door-fill"></i>
                     <span>Beranda</span>
-                </a>
-
-                <a href="{{ route('rooms') }}" class="{{ request()->routeIs('rooms*') ? 'active' : '' }}">
-                    <i class="bi bi-grid-1x2-fill"></i>
-                    <span>Ruangan</span>
                 </a>
 
                 <a href="{{ route('energy.history') }}" class="{{ request()->routeIs('energy.history') ? 'active' : '' }}">
@@ -556,7 +794,7 @@
         </div>
 
         <div class="sv-warning-banner">
-            Mode ini hanya untuk teknisi. Pastikan ruangan, kode device / relay, dan kode pengukur listrik diisi dengan benar.
+            Mode ini hanya untuk teknisi. Pastikan ruangan, relay, dan kode sensor diisi dengan benar.
         </div>
 
         <form action="{{ route('advanced-mode.enable') }}" method="POST" class="sv-form-stack">
@@ -581,111 +819,329 @@
     </div>
 
     @if($advancedMode)
-        <aside id="techDrawer" class="sv-drawer">
-            <div class="sv-drawer-head">
-                <div>
-                    <h3>Panel Teknisi</h3>
-                    <div class="sv-panel-sub">Tambah ruangan dan perangkat.</div>
-                </div>
+        <section id="techScreen" class="sv-tech-screen">
+            <div class="sv-tech-container">
+                <div class="sv-tech-card">
+                    <div class="sv-tech-head">
+                        <div>
+                            <h3>Panel Teknisi</h3>
+                            <div class="sv-panel-sub">Kelola ruangan dan perangkat SmartVolt.</div>
+                        </div>
 
-                <button type="button" class="sv-close-btn" onclick="closeTechPanel()">
-                    <i class="bi bi-x-lg"></i>
-                </button>
+                        <button type="button" class="sv-close-btn" onclick="closeTechPanel()">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+
+                    <div class="sv-tech-layout">
+                        <div class="sv-tech-section">
+                            <div class="sv-mini-title">Tambah Ruangan</div>
+
+                            <form action="{{ route('rooms.store') }}" method="POST" class="sv-form-stack">
+                                @csrf
+                                <input type="hidden" name="return_to" value="settings">
+
+                                <div class="sv-form-group">
+                                    <label class="sv-form-label">Nama Ruangan</label>
+                                    <input
+                                        type="text"
+                                        name="name"
+                                        class="sv-form-input"
+                                        placeholder="Contoh: Kamar, Dapur"
+                                        required
+                                    >
+                                </div>
+
+                                <button type="submit" class="sv-primary-btn">
+                                    <i class="bi bi-plus-circle-fill"></i>
+                                    Tambah Ruangan
+                                </button>
+                            </form>
+
+                            <div class="sv-form-divider" style="margin: 22px 0;"></div>
+
+                            <div class="sv-mini-title">Ruangan Terdaftar</div>
+
+                            <div class="sv-room-list">
+                                @forelse($roomsForDevice as $room)
+                                    @php
+                                        $roomDevices = $room->devices ?? collect();
+                                        $deviceCount = $room->devices_count ?? $roomDevices->count();
+                                    @endphp
+
+                                    <div
+                                        id="tech-room-tab-{{ $room->id }}"
+                                        class="sv-room-row {{ (string) $selectedRoomId === (string) $room->id ? 'active' : '' }}"
+                                    >
+                                        <button type="button" onclick="showTechRoom({{ $room->id }})">
+                                            <h4>{{ $room->name }}</h4>
+                                            <p>{{ $deviceCount }} perangkat</p>
+                                        </button>
+                                    </div>
+                                @empty
+                                    <div class="sv-panel-sub">Belum ada ruangan.</div>
+                                @endforelse
+                            </div>
+                        </div>
+
+                        <div class="sv-tech-section">
+                            @forelse($roomsForDevice as $room)
+                                @php
+                                    $roomDevices = $room->devices ?? collect();
+                                @endphp
+
+                                <div
+                                    id="tech-room-panel-{{ $room->id }}"
+                                    class="sv-room-detail-panel {{ (string) $selectedRoomId === (string) $room->id ? 'active' : '' }}"
+                                >
+                                    <div>
+                                        <div class="sv-selected-room-head">
+                                            <div>
+                                                <h4>{{ $room->name }}</h4>
+                                                <p>Kelola perangkat yang berada di ruangan ini.</p>
+                                            </div>
+
+                                            <div class="sv-tech-actions">
+                                                <button
+                                                    type="button"
+                                                    class="sv-secondary-btn"
+                                                    onclick="toggleTechBox('edit-room-{{ $room->id }}')"
+                                                >
+                                                    <i class="bi bi-pencil-square"></i>
+                                                    Ubah
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    class="sv-primary-btn"
+                                                    onclick="toggleTechBox('add-device-{{ $room->id }}')"
+                                                >
+                                                    <i class="bi bi-plus-circle-fill"></i>
+                                                    Tambah
+                                                </button>
+
+                                                <form
+                                                    action="{{ route('rooms.destroy', $room->id) }}"
+                                                    method="POST"
+                                                    onsubmit="return confirm('Hapus ruangan ini beserta semua perangkat di dalamnya?');"
+                                                >
+                                                    @csrf
+                                                    @method('DELETE')
+                                                    <input type="hidden" name="return_to" value="settings">
+
+                                                    <button type="submit" class="sv-danger-btn">
+                                                        <i class="bi bi-trash-fill"></i>
+                                                        Hapus
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </div>
+
+                                        <div id="edit-room-{{ $room->id }}" class="sv-edit-panel">
+                                            <form action="{{ route('rooms.update', $room->id) }}" method="POST" class="sv-form-stack">
+                                                @csrf
+                                                @method('PUT')
+                                                <input type="hidden" name="return_to" value="settings">
+
+                                                <div class="sv-form-group">
+                                                    <label class="sv-form-label">Nama Ruangan</label>
+                                                    <input
+                                                        type="text"
+                                                        name="name"
+                                                        class="sv-form-input"
+                                                        value="{{ old('name', $room->name) }}"
+                                                        required
+                                                    >
+                                                </div>
+
+                                                <button type="submit" class="sv-primary-btn">
+                                                    <i class="bi bi-check-circle-fill"></i>
+                                                    Simpan
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </div>
+
+                                    <div id="add-device-{{ $room->id }}" class="sv-edit-panel">
+                                        <div class="sv-mini-title">Tambah Perangkat di {{ $room->name }}</div>
+
+                                        <form action="{{ route('devices.store', $room->id) }}" method="POST" class="sv-form-stack">
+                                            @csrf
+                                            <input type="hidden" name="return_to" value="settings">
+
+                                            <div class="sv-form-grid">
+                                                <div class="sv-form-group">
+                                                    <label class="sv-form-label">Nama Perangkat</label>
+                                                    <input
+                                                        type="text"
+                                                        name="name"
+                                                        class="sv-form-input"
+                                                        placeholder="Contoh: Lampu Utama"
+                                                        required
+                                                    >
+                                                </div>
+
+                                                <div class="sv-form-group">
+                                                    <label class="sv-form-label">Kode Relay</label>
+                                                    <input
+                                                        type="text"
+                                                        name="relay_code"
+                                                        class="sv-form-input"
+                                                        placeholder="Contoh: RELAY-1"
+                                                        required
+                                                    >
+                                                </div>
+
+                                                <div class="sv-form-group sv-span-2">
+                                                    <label class="sv-form-label">Kode Sensor</label>
+                                                    <input
+                                                        type="text"
+                                                        name="esp_unit_id"
+                                                        class="sv-form-input"
+                                                        placeholder="Contoh: SV-001"
+                                                        required
+                                                    >
+                                                </div>
+                                            </div>
+
+                                            <button type="submit" class="sv-primary-btn">
+                                                <i class="bi bi-check-circle-fill"></i>
+                                                Simpan Perangkat
+                                            </button>
+                                        </form>
+                                    </div>
+
+                                    <div class="sv-form-divider" style="margin: 4px 0;"></div>
+
+                                    <div>
+                                        <div class="sv-mini-title">Perangkat Terdaftar</div>
+
+                                        <div class="sv-device-list">
+                                            @forelse($roomDevices as $device)
+                                                <div class="sv-device-edit-card">
+                                                    <div class="sv-device-edit-head">
+                                                        <div>
+                                                            <h4>{{ $device->name }}</h4>
+                                                            <p>{{ $room->name }}</p>
+                                                        </div>
+
+                                                        <div class="sv-tech-actions">
+                                                            <button
+                                                                type="button"
+                                                                class="sv-secondary-btn"
+                                                                onclick="toggleTechBox('edit-device-{{ $device->id }}')"
+                                                            >
+                                                                <i class="bi bi-pencil-square"></i>
+                                                                Ubah
+                                                            </button>
+
+                                                            <form
+                                                                action="{{ route('devices.destroy', $device->id) }}"
+                                                                method="POST"
+                                                                onsubmit="return confirm('Hapus perangkat ini?');"
+                                                            >
+                                                                @csrf
+                                                                @method('DELETE')
+                                                                <input type="hidden" name="return_to" value="settings">
+
+                                                                <button type="submit" class="sv-danger-btn">
+                                                                    <i class="bi bi-trash-fill"></i>
+                                                                    Hapus
+                                                                </button>
+                                                            </form>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="sv-device-summary-grid">
+                                                        <div>
+                                                            <span>Kode Relay</span>
+                                                            <strong>{{ $device->relay_code ?? $device->esp32_device_id ?? '-' }}</strong>
+                                                        </div>
+
+                                                        <div>
+                                                            <span>Kode Sensor</span>
+                                                            <strong>{{ $device->esp_unit_id ?? '-' }}</strong>
+                                                        </div>
+
+                                                        <div>
+                                                            <span>Status</span>
+                                                            <strong>{{ $device->status ? 'Nyala' : 'Mati' }}</strong>
+                                                        </div>
+                                                    </div>
+
+                                                    <div id="edit-device-{{ $device->id }}" class="sv-edit-panel">
+                                                        <form action="{{ route('devices.update', $device->id) }}" method="POST" class="sv-form-stack">
+                                                            @csrf
+                                                            @method('PUT')
+                                                            <input type="hidden" name="return_to" value="settings">
+
+                                                            <div class="sv-form-grid">
+                                                                <div class="sv-form-group">
+                                                                    <label class="sv-form-label">Nama Perangkat</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        name="name"
+                                                                        class="sv-form-input"
+                                                                        value="{{ old('name', $device->name) }}"
+                                                                        required
+                                                                    >
+                                                                </div>
+
+                                                                <div class="sv-form-group">
+                                                                    <label class="sv-form-label">Kode Relay</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        name="relay_code"
+                                                                        class="sv-form-input"
+                                                                        value="{{ old('relay_code', $device->relay_code ?? $device->esp32_device_id) }}"
+                                                                        required
+                                                                    >
+                                                                </div>
+
+                                                                <div class="sv-form-group">
+                                                                    <label class="sv-form-label">Kode Sensor</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        name="esp_unit_id"
+                                                                        class="sv-form-input"
+                                                                        value="{{ old('esp_unit_id', $device->esp_unit_id) }}"
+                                                                        placeholder="Contoh: SV-001"
+                                                                        required
+                                                                    >
+                                                                </div>
+                                                            </div>
+
+                                                            <button type="submit" class="sv-primary-btn">
+                                                                <i class="bi bi-check-circle-fill"></i>
+                                                                Simpan
+                                                            </button>
+                                                        </form>
+                                                    </div>
+                                                </div>
+                                            @empty
+                                                <div class="sv-panel-sub">Belum ada perangkat di ruangan ini.</div>
+                                            @endforelse
+                                        </div>
+                                    </div>
+                                </div>
+                            @empty
+                                <div class="sv-panel-sub">
+                                    Belum ada ruangan. Tambahkan ruangan terlebih dahulu sebelum menambah perangkat.
+                                </div>
+                            @endforelse
+                        </div>
+                    </div>
+                </div>
             </div>
-
-            <div class="sv-mini-title">Tambah Ruangan</div>
-
-            <form action="{{ route('rooms.store') }}" method="POST" class="sv-form-stack">
-                @csrf
-                <input type="hidden" name="return_to" value="settings">
-
-                <div class="sv-form-group">
-                    <label class="sv-form-label">Nama Ruangan</label>
-                    <input
-                        type="text"
-                        name="name"
-                        class="sv-form-input"
-                        placeholder="Contoh: Kamar, Dapur"
-                        required
-                    >
-                </div>
-
-                <button type="submit" class="sv-primary-btn">
-                    <i class="bi bi-plus-circle-fill"></i>
-                    Tambah Ruangan
-                </button>
-            </form>
-
-            <div class="sv-form-divider" style="margin: 22px 0;"></div>
-
-            <div class="sv-mini-title">Tambah Perangkat</div>
-
-            <form action="{{ route('devices.store') }}" method="POST" class="sv-form-stack">
-                @csrf
-                <input type="hidden" name="return_to" value="settings">
-
-                <div class="sv-form-group">
-                    <label class="sv-form-label">Ruangan</label>
-                    <select name="room_id" class="sv-form-select" required>
-                        <option value="">Pilih ruangan</option>
-                        @foreach($roomsForDevice as $room)
-                            <option value="{{ $room->id }}" {{ (string) $selectedRoomId === (string) $room->id ? 'selected' : '' }}>
-                                {{ $room->name }}
-                            </option>
-                        @endforeach
-                    </select>
-                </div>
-
-                <div class="sv-form-group">
-                    <label class="sv-form-label">Nama Perangkat</label>
-                    <input
-                        type="text"
-                        name="name"
-                        class="sv-form-input"
-                        placeholder="Contoh: Lampu Utama"
-                        required
-                    >
-                </div>
-
-               
-                <div class="sv-form-group">
-                    <label class="sv-form-label">Kode Device / Relay</label>
-                    <input
-                        type="text"
-                        name="esp32_device_id"
-                        class="sv-form-input"
-                        placeholder="Contoh: 2"
-                        required
-                    >
-                </div>
-
-                <div class="sv-form-group">
-                    <label class="sv-form-label">Kode Pengukur Listrik</label>
-                    <input
-                        type="text"
-                        name="esp_unit_id"
-                        class="sv-form-input"
-                        placeholder="Contoh: SV-001"
-                    >
-                </div>
-
-                <button type="submit" class="sv-primary-btn">
-                    <i class="bi bi-plus-circle-fill"></i>
-                    Tambah Perangkat
-                </button>
-            </form>
-
-            <div class="sv-form-divider" style="margin: 22px 0;"></div>
-
-            <form action="{{ route('advanced-mode.disable') }}" method="POST">
-                @csrf
-
-                
-            </form>
-        </aside>
+        </section>
     @endif
 
     <script>
+        const shouldOpenTechPanel = {{ \Illuminate\Support\Js::from(session('open_advanced_panel') || old('return_to') === 'settings') }};
+        const shouldOpenPinModal = {{ \Illuminate\Support\Js::from($errors->has('advanced_mode')) }};
+        const shouldOpenAccountModal = {{ \Illuminate\Support\Js::from($errors->any() && old('return_to') !== 'settings' && ! $errors->has('advanced_mode')) }};
+        const selectedTechRoomId = {{ \Illuminate\Support\Js::from((string) $selectedRoomId) }};
+
         function openAccountModal() {
             document.getElementById('accountBackdrop')?.classList.add('show');
             document.getElementById('accountModal')?.classList.add('show');
@@ -707,36 +1163,75 @@
         }
 
         function openTechPanel() {
-            document.getElementById('techDrawer')?.classList.add('show');
+            document.getElementById('techScreen')?.classList.add('show');
+            openSelectedTechRoom();
         }
 
         function closeTechPanel() {
-            document.getElementById('techDrawer')?.classList.remove('show');
+            document.getElementById('techScreen')?.classList.remove('show');
         }
 
-        @if(session('open_advanced_panel'))
-            window.addEventListener('DOMContentLoaded', function () {
-                openTechPanel();
-            });
-        @endif
+        function showTechRoom(roomId) {
+            const tabs = document.querySelectorAll('.sv-room-row');
+            const panels = document.querySelectorAll('.sv-room-detail-panel');
 
-        @if(old('return_to') === 'settings')
-            window.addEventListener('DOMContentLoaded', function () {
-                openTechPanel();
+            tabs.forEach(function (tab) {
+                tab.classList.remove('active');
             });
-        @endif
 
-        @if($errors->has('advanced_mode'))
-            window.addEventListener('DOMContentLoaded', function () {
+            panels.forEach(function (panel) {
+                panel.classList.remove('active');
+            });
+
+            const activeTab = document.getElementById('tech-room-tab-' + roomId);
+            const activePanel = document.getElementById('tech-room-panel-' + roomId);
+
+            if (activeTab) {
+                activeTab.classList.add('active');
+            }
+
+            if (activePanel) {
+                activePanel.classList.add('active');
+            }
+        }
+
+        function toggleTechBox(id) {
+            const box = document.getElementById(id);
+
+            if (box) {
+                box.classList.toggle('show');
+            }
+        }
+
+        function openSelectedTechRoom() {
+            if (selectedTechRoomId) {
+                showTechRoom(selectedTechRoomId);
+                return;
+            }
+
+            const firstRoom = document.querySelector('.sv-room-row');
+
+            if (firstRoom) {
+                const firstRoomId = firstRoom.id.replace('tech-room-tab-', '');
+                showTechRoom(firstRoomId);
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', function () {
+            openSelectedTechRoom();
+
+            if (shouldOpenTechPanel) {
+                openTechPanel();
+            }
+
+            if (shouldOpenPinModal) {
                 openPinModal();
-            });
-        @endif
+            }
 
-        @if($errors->any() && old('return_to') !== 'settings' && ! $errors->has('advanced_mode'))
-            window.addEventListener('DOMContentLoaded', function () {
+            if (shouldOpenAccountModal) {
                 openAccountModal();
-            });
-        @endif
+            }
+        });
     </script>
 </body>
 </html>

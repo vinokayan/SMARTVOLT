@@ -5,17 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\Room;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Schema;
 
 class RoomController extends Controller
 {
-    private function ensureAdvancedMode()
-    {
-        if (! session('advanced_mode')) {
-            abort(403, 'Mode Lanjutan belum aktif.');
-        }
-    }
-
-    private function ensureRoomOwner(Room $room)
+    private function ensureRoomOwner(Room $room): void
     {
         if ((int) $room->user_id !== (int) Auth::id()) {
             abort(403, 'Anda tidak punya akses ke ruangan ini.');
@@ -26,10 +20,10 @@ class RoomController extends Controller
     {
         $rooms = Room::withCount('devices')
             ->with(['devices' => function ($query) {
-                $query->latest();
+                $query->orderBy('name');
             }])
             ->where('user_id', Auth::id())
-            ->latest()
+            ->orderBy('name')
             ->get();
 
         return view('rooms', compact('rooms'));
@@ -37,8 +31,6 @@ class RoomController extends Controller
 
     public function store(Request $request)
     {
-        $this->ensureAdvancedMode();
-
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:100'],
         ], [
@@ -46,28 +38,26 @@ class RoomController extends Controller
             'name.max' => 'Nama ruangan maksimal 100 karakter.',
         ]);
 
-        $room = Room::create([
+        $data = [
             'user_id' => Auth::id(),
             'name' => $validated['name'],
-            'status' => true,
-        ]);
+        ];
 
-        if ($request->input('return_to') === 'settings') {
-            return redirect()
-                ->route('settings')
-                ->with('status', 'Ruangan berhasil ditambahkan.')
-                ->with('open_advanced_panel', true)
-                ->with('selected_room_id', $room->id);
+        if (Schema::hasColumn('rooms', 'status')) {
+            $data['status'] = true;
         }
 
-        return redirect()
-            ->route('rooms')
-            ->with('status', 'Ruangan berhasil ditambahkan.');
+        $room = Room::create($data);
+
+        return $this->redirectAfterAction(
+            $request,
+            'Ruangan berhasil ditambahkan.',
+            $room->id
+        );
     }
 
     public function update(Request $request, Room $room)
     {
-        $this->ensureAdvancedMode();
         $this->ensureRoomOwner($room);
 
         $validated = $request->validate([
@@ -81,53 +71,54 @@ class RoomController extends Controller
             'name' => $validated['name'],
         ]);
 
-        if ($request->input('return_to') === 'settings') {
-            return redirect()
-                ->route('settings')
-                ->with('status', 'Ruangan berhasil diperbarui.')
-                ->with('open_advanced_panel', true)
-                ->with('selected_room_id', $room->id);
-        }
-
-        return redirect()
-            ->route('rooms')
-            ->with('status', 'Ruangan berhasil diperbarui.');
+        return $this->redirectAfterAction(
+            $request,
+            'Ruangan berhasil diperbarui.',
+            $room->id
+        );
     }
 
     public function destroy(Request $request, Room $room)
     {
-        $this->ensureAdvancedMode();
         $this->ensureRoomOwner($room);
 
-        if ($room->devices()->count() > 0) {
-            if ($request->input('return_to') === 'settings') {
-                return redirect()
-                    ->route('settings')
-                    ->withErrors([
-                        'room' => 'Ruangan tidak bisa dihapus karena masih memiliki perangkat.',
-                    ])
-                    ->with('open_advanced_panel', true)
-                    ->with('selected_room_id', $room->id);
-            }
-
-            return redirect()
-                ->route('rooms')
-                ->withErrors([
-                    'room' => 'Ruangan tidak bisa dihapus karena masih memiliki perangkat.',
-                ]);
-        }
-
+        $room->devices()->delete();
         $room->delete();
 
-        if ($request->input('return_to') === 'settings') {
-            return redirect()
+        return $this->redirectAfterAction(
+            $request,
+            'Ruangan berhasil dihapus.'
+        );
+    }
+
+    private function redirectAfterAction(Request $request, string $message, ?int $selectedRoomId = null)
+    {
+        $returnTo = $request->input('return_to');
+
+        if ($returnTo === 'settings') {
+            $redirect = redirect()
                 ->route('settings')
-                ->with('status', 'Ruangan berhasil dihapus.')
+                ->with('success', $message)
+                ->with('status', $message)
                 ->with('open_advanced_panel', true);
+
+            if ($selectedRoomId) {
+                $redirect->with('selected_room_id', $selectedRoomId);
+            }
+
+            return $redirect;
+        }
+
+        if ($returnTo === 'rooms') {
+            return redirect()
+                ->route('rooms')
+                ->with('success', $message)
+                ->with('status', $message);
         }
 
         return redirect()
-            ->route('rooms')
-            ->with('status', 'Ruangan berhasil dihapus.');
+            ->route('dashboard')
+            ->with('success', $message)
+            ->with('status', $message);
     }
 }

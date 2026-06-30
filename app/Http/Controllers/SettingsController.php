@@ -22,7 +22,7 @@ class SettingsController extends Controller
 
     public function index()
     {
-        $user = Auth::user();
+        $user = User::findOrFail(Auth::id());
 
         $rooms = Room::where('user_id', $user->id)
             ->orderBy('name')
@@ -74,7 +74,7 @@ class SettingsController extends Controller
 
     public function updateProfile(Request $request)
     {
-        $user = Auth::user();
+        $user = User::findOrFail(Auth::id());
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
@@ -86,12 +86,14 @@ class SettingsController extends Controller
             ],
         ], [
             'name.required' => 'Nama wajib diisi.',
+            'name.max' => 'Nama maksimal 255 karakter.',
             'email.required' => 'Email wajib diisi.',
             'email.email' => 'Format email tidak valid.',
+            'email.max' => 'Email maksimal 255 karakter.',
             'email.unique' => 'Email sudah digunakan oleh akun lain.',
         ]);
 
-        User::where('id', $user->id)->update([
+        $user->update([
             'name' => $validated['name'],
             'email' => $validated['email'],
         ]);
@@ -101,7 +103,7 @@ class SettingsController extends Controller
 
     public function updatePassword(Request $request)
     {
-        $user = Auth::user();
+        $user = User::findOrFail(Auth::id());
 
         $validated = $request->validate([
             'current_password' => ['required'],
@@ -130,7 +132,7 @@ class SettingsController extends Controller
     {
         $this->ensureAdvancedMode();
 
-        $user = Auth::user();
+        $user = User::findOrFail(Auth::id());
 
         $deviceId = $request->input('device_id');
 
@@ -153,7 +155,7 @@ class SettingsController extends Controller
                 }),
             ],
             'device_name' => ['required', 'string', 'max:100'],
-            'device_type' => ['nullable', 'string', 'max:50'],
+            'device_type' => ['nullable', 'string', 'max:100'],
             'esp32_device_id' => [
                 'nullable',
                 'string',
@@ -173,6 +175,7 @@ class SettingsController extends Controller
             'room_id.required' => 'Ruangan wajib dipilih.',
             'room_id.exists' => 'Ruangan tidak valid.',
             'device_name.required' => 'Nama perangkat wajib diisi.',
+            'device_name.max' => 'Nama perangkat maksimal 100 karakter.',
             'esp32_device_id.unique' => 'Kode device / relay sudah digunakan.',
             'esp_unit_id.unique' => 'Kode pengukur listrik sudah digunakan.',
             'electricity_tariff.required' => 'Tarif listrik wajib diisi.',
@@ -215,6 +218,7 @@ class SettingsController extends Controller
 
         return back()
             ->with('status', 'Pengaturan teknis berhasil diperbarui.')
-            ->with('open_advanced_panel', true);
+            ->with('open_advanced_panel', true)
+            ->with('selected_room_id', $device->room_id);
     }
 }

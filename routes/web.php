@@ -25,36 +25,55 @@ Route::redirect('/', '/login');
 */
 
 Route::middleware('guest')->group(function () {
-    // LOGIN
+
+    /*
+    |--------------------------------------------------------------------------
+    | Login
+    |--------------------------------------------------------------------------
+    */
+
     Route::get('/login', [AuthController::class, 'showLoginForm'])
         ->name('login');
 
     Route::post('/login', [AuthController::class, 'login'])
         ->name('login.process');
 
-    // Alias tambahan agar blade yang memakai route('login.post') tetap aman
     Route::post('/login-post', [AuthController::class, 'login'])
         ->name('login.post');
 
-    // REGISTER
+    /*
+    |--------------------------------------------------------------------------
+    | Register
+    |--------------------------------------------------------------------------
+    */
+
     Route::get('/register', [AuthController::class, 'showRegisterForm'])
         ->name('register');
 
     Route::post('/register', [AuthController::class, 'register'])
         ->name('register.process');
 
-    // Alias tambahan agar blade yang memakai route('register.post') tetap aman
     Route::post('/register-post', [AuthController::class, 'register'])
         ->name('register.post');
 
-    // FORGOT PASSWORD
+    /*
+    |--------------------------------------------------------------------------
+    | Forgot Password
+    |--------------------------------------------------------------------------
+    */
+
     Route::get('/forgot-password', [AuthController::class, 'showForgotPasswordForm'])
         ->name('password.request');
 
     Route::post('/forgot-password', [AuthController::class, 'sendResetLink'])
         ->name('password.email');
 
-    // RESET PASSWORD
+    /*
+    |--------------------------------------------------------------------------
+    | Reset Password
+    |--------------------------------------------------------------------------
+    */
+
     Route::get('/reset-password/{token}', [AuthController::class, 'showResetPasswordForm'])
         ->name('password.reset');
 
@@ -70,14 +89,25 @@ Route::middleware('guest')->group(function () {
 */
 
 Route::middleware('auth')->group(function () {
-    // DASHBOARD
+
+    /*
+    |--------------------------------------------------------------------------
+    | Dashboard
+    |--------------------------------------------------------------------------
+    */
+
     Route::get('/dashboard', [DashboardController::class, 'index'])
         ->name('dashboard');
 
     Route::get('/dashboard/data', [DashboardController::class, 'data'])
         ->name('dashboard.data');
 
-    // ROOMS
+    /*
+    |--------------------------------------------------------------------------
+    | Rooms / Ruangan
+    |--------------------------------------------------------------------------
+    */
+
     Route::get('/rooms', [RoomController::class, 'index'])
         ->name('rooms');
 
@@ -90,11 +120,20 @@ Route::middleware('auth')->group(function () {
     Route::delete('/rooms/{room}', [RoomController::class, 'destroy'])
         ->name('rooms.destroy');
 
-    // DEVICES
+    /*
+    |--------------------------------------------------------------------------
+    | Devices / Perangkat
+    |--------------------------------------------------------------------------
+    | Route ini dibuat fleksibel:
+    | - Dari dashboard bisa pakai route('devices.store', $room->id)
+    | - Dari settings bisa pakai route('devices.store') dengan input room_id
+    |--------------------------------------------------------------------------
+    */
+
     Route::get('/devices', [DeviceController::class, 'index'])
         ->name('devices');
 
-    Route::post('/devices', [DeviceController::class, 'store'])
+    Route::post('/devices/{room?}', [DeviceController::class, 'store'])
         ->name('devices.store');
 
     Route::put('/devices/{device}', [DeviceController::class, 'update'])
@@ -106,14 +145,24 @@ Route::middleware('auth')->group(function () {
     Route::post('/devices/{device}/toggle', [DeviceController::class, 'toggle'])
         ->name('devices.toggle');
 
-    // ENERGY HISTORY
+    /*
+    |--------------------------------------------------------------------------
+    | Energy History
+    |--------------------------------------------------------------------------
+    */
+
     Route::get('/energy-history', [EnergyController::class, 'index'])
         ->name('energy.history');
 
     Route::get('/energy-history/export', [EnergyController::class, 'export'])
         ->name('energy.history.export');
 
-    // SETTINGS
+    /*
+    |--------------------------------------------------------------------------
+    | Settings
+    |--------------------------------------------------------------------------
+    */
+
     Route::get('/settings', [SettingsController::class, 'index'])
         ->name('settings');
 
@@ -126,14 +175,27 @@ Route::middleware('auth')->group(function () {
     Route::put('/settings/system', [SettingsController::class, 'updateSystem'])
         ->name('settings.system.update');
 
-    // ADVANCED MODE
+    /*
+    |--------------------------------------------------------------------------
+    | Advanced Mode
+    |--------------------------------------------------------------------------
+    | Tetap disediakan agar file lama yang masih memanggil mode lanjutan
+    | tidak langsung error.
+    |--------------------------------------------------------------------------
+    */
+
     Route::post('/mode-lanjutan/aktif', [AdvancedModeController::class, 'enable'])
         ->name('advanced-mode.enable');
 
     Route::post('/mode-lanjutan/nonaktif', [AdvancedModeController::class, 'disable'])
         ->name('advanced-mode.disable');
 
-    // LOGOUT
+    /*
+    |--------------------------------------------------------------------------
+    | Logout
+    |--------------------------------------------------------------------------
+    */
+
     Route::post('/logout', [AuthController::class, 'logout'])
         ->name('logout');
 });
