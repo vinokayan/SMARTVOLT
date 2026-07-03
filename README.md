@@ -1,59 +1,120 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
-
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
-
-## About Laravel
-
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
-
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
-
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
-
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
-
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-## Laravel Sponsors
-
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
-
-### Premium Partners
-
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
-
-## Contributing
-
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
-
-## Code of Conduct
-
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+# SMARTVOLT
+SMARTVOLT adalah aplikasi web monitoring dan kontrol penggunaan listrik berbasis IoT. Aplikasi ini dibangun menggunakan Laravel, MQTT, dan perangkat ESP32 untuk memantau data listrik seperti tegangan, arus, daya, energi, frekuensi, dan power factor.
+SMARTVOLT dirancang agar pengguna dapat memantau pemakaian listrik dan mengontrol perangkat listrik dengan mudah tanpa perlu memahami konfigurasi teknis perangkat IoT. Proses konfigurasi ruangan dan perangkat dilakukan oleh teknisi karena membutuhkan pengaturan kode alat seperti kode relay, kode sensor, dan identitas perangkat ESP.
+## Konsep Pengguna
+SMARTVOLT memiliki pembagian peran berdasarkan kebutuhan penggunaan sistem.
+### User
+User adalah pengguna utama aplikasi yang menggunakan SMARTVOLT untuk memantau dan mengontrol perangkat listrik.
+User dapat:
+- Melihat dashboard monitoring listrik
+- Melihat data pemakaian listrik
+- Melihat status perangkat
+- Melihat daftar ruangan yang sudah dikonfigurasi
+- Melihat perangkat yang tersedia di setiap ruangan
+- Mengontrol perangkat ON/OFF
+- Melihat riwayat penggunaan energi
+- Melakukan export data riwayat energi
+- Mengubah profil dan password akun
+User tidak perlu menambahkan ruangan atau perangkat secara manual karena proses tersebut membutuhkan pemahaman teknis terkait kode alat IoT.
+### Teknisi
+Teknisi bertugas melakukan konfigurasi awal dan pengelolaan perangkat IoT agar sistem dapat digunakan oleh user.
+Teknisi dapat:
+- Menambahkan ruangan
+- Mengubah data ruangan
+- Menghapus ruangan
+- Menambahkan perangkat listrik
+- Mengubah data perangkat
+- Menghapus perangkat
+- Mengatur kode relay perangkat
+- Mengatur kode sensor ESP
+- Mengatur identitas perangkat ESP32
+- Menghubungkan perangkat IoT dengan sistem SMARTVOLT
+- Mengatur tarif listrik
+- Mengatur batas daya
+- Mengatur interval refresh data
+Pemisahan peran ini dibuat agar user dapat menggunakan sistem secara sederhana, sementara konfigurasi teknis tetap dilakukan oleh teknisi yang memahami perangkat IoT.
+## Fitur Utama
+- Autentikasi pengguna
+  - Login
+  - Register
+  - Forgot password
+  - Reset password
+  - Logout
+- Dashboard monitoring
+  - Total energi hari ini
+  - Daya saat ini
+  - Jumlah ruangan
+  - Jumlah perangkat
+  - Jumlah perangkat aktif
+  - Grafik daya dan energi
+- Monitoring ruangan
+  - Menampilkan daftar ruangan yang sudah dikonfigurasi teknisi
+  - Menampilkan perangkat berdasarkan ruangan
+  - Menampilkan status perangkat pada setiap ruangan
+- Kontrol perangkat
+  - User dapat menyalakan perangkat
+  - User dapat mematikan perangkat
+  - Status perangkat dikirim ke ESP32 melalui MQTT
+  - Perangkat dikontrol berdasarkan kode relay yang sudah dikonfigurasi teknisi
+- Konfigurasi sistem oleh teknisi
+  - Menambahkan ruangan
+  - Mengubah data ruangan
+  - Menghapus ruangan
+  - Menambahkan perangkat
+  - Mengubah perangkat
+  - Menghapus perangkat
+  - Mengatur kode relay perangkat
+  - Mengatur kode sensor ESP
+  - Mengatur identitas perangkat ESP32
+  - Mengatur tarif listrik
+  - Mengatur batas daya
+  - Mengatur interval refresh data
+- Monitoring energi
+  - Menyimpan data voltage
+  - Menyimpan data current
+  - Menyimpan data power
+  - Menyimpan data energy
+  - Menyimpan data frequency
+  - Menyimpan data power factor
+- Riwayat energi
+  - Melihat data penggunaan energi
+  - Export data riwayat energi
+- Pengaturan akun
+  - Update profil pengguna
+  - Update password
+- Integrasi IoT
+  - API untuk menerima data sensor dari ESP32
+  - API untuk mengambil command perangkat
+  - Kontrol perangkat menggunakan MQTT
+  - Dukungan konfigurasi Mosquitto
+## Teknologi yang Digunakan
+- Laravel 12
+- PHP 8.2
+- SQLite / Database Laravel
+- MQTT
+- Mosquitto Broker
+- ESP32
+- Tailwind CSS
+- Vite
+- Axios
+- DOMPDF
+- php-mqtt/client
+- php-mqtt/laravel-client
+## Alur Kerja Sistem
+1. User login ke aplikasi SMARTVOLT.
+2. Teknisi melakukan konfigurasi sistem.
+3. Teknisi menambahkan ruangan.
+4. Teknisi menambahkan perangkat listrik ke ruangan yang sesuai.
+5. Teknisi mengatur kode relay, kode sensor ESP, dan identitas perangkat ESP32.
+6. ESP32 mengirim data sensor listrik ke API SMARTVOLT.
+7. SMARTVOLT menyimpan data sensor ke database.
+8. Dashboard menampilkan statistik penggunaan energi, status ruangan, dan status perangkat.
+9. User melihat data pemakaian listrik melalui dashboard.
+10. User dapat menyalakan atau mematikan perangkat dari aplikasi.
+11. Saat perangkat dikontrol, Laravel mengirim perintah melalui MQTT.
+12. ESP32 menerima command dari MQTT dan mengontrol relay perangkat.
+13. Data penggunaan energi tersimpan dan dapat dilihat melalui halaman riwayat energi.
+## Instalasi
+Clone repository:
+```bash
+git clone https://github.com/vinokayan/SMARTVOLT.git
