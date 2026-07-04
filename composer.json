@@ -9,7 +9,9 @@
         "php": "^8.2",
         "barryvdh/laravel-dompdf": "^3.1",
         "laravel/framework": "^12.0",
+        "laravel/reverb": "^1.0",
         "laravel/tinker": "^2.10.1",
+        "livewire/livewire": "^4.3",
         "php-mqtt/client": "^2.3",
         "php-mqtt/laravel-client": "^1.8"
     },
