@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="60">
     <title>Pemakaian Listrik - SmartVolt</title>
     <link rel="stylesheet" href="{{ asset('assets/css/smartvolt-brand.css') }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
@@ -316,7 +317,7 @@
                     <div class="sv-topbar-left" style="display: flex; align-items: center; gap: 16px;">
                         <div>
                             <h1 class="sv-page-title">Pemakaian Listrik</h1>
-                            <p class="sv-page-sub">Riwayat pemantauan listrik dari perangkat SmartVolt</p>
+                            <p class="sv-page-sub">Data terakhir pemantauan listrik dari perangkat SmartVolt</p>
                         </div>
                     </div>
                     <div class="sv-topbar-right" style="display: flex; gap: 12px;">
@@ -334,16 +335,16 @@
             <section class="sv-shell">
                 <div class="sv-hero">
                     <div class="sv-hero-card sv-glass" style="padding: 28px;">
-                        <h1 style="margin-bottom: 10px;">Pantau riwayat pemakaian listrik perangkat.</h1>
+                        <h1 style="margin-bottom: 10px;">Pantau data terakhir pemakaian listrik perangkat.</h1>
                         <p style="margin: 0; color: #b9cae3;">
-                            Halaman ini menampilkan data tegangan, arus, daya, dan energi yang dikirim sensor ke sistem.
+                            Halaman ini menampilkan satu data terbaru yang diperbarui otomatis setiap sensor mengirim data.
                         </p>
                     </div>
                 </div>
                 <div class="history-grid">
                     <div class="history-card sv-glass">
-                        <div class="history-label">Total Data</div>
-                        <div class="history-value">{{ $summary['total_logs'] ?? 0 }}</div>
+                        <div class="history-label">Data Aktif</div>
+                        <div class="history-value">{{ method_exists($logs, 'count') ? $logs->count() : count($logs ?? []) }}</div>
                     </div>
                     <div class="history-card sv-glass">
                         <div class="history-label">Daya Tertinggi</div>
@@ -438,7 +439,7 @@
                     <div class="sv-panel-head">
                         <div>
                             <h3>Grafik Pemakaian Listrik</h3>
-                            <div class="sv-panel-sub">Data daya dan energi dari tabel energy_logs</div>
+                            <div class="sv-panel-sub">Data daya dan energi terbaru dari sensor</div>
                         </div>
                     </div>
                     <div class="history-chart-wrap">
@@ -454,7 +455,7 @@
                     <div class="sv-panel-head">
                         <div>
                             <h3>Data Sensor</h3>
-                            <div class="sv-panel-sub">Riwayat data yang tersimpan di database</div>
+                            <div class="sv-panel-sub">Satu baris data terakhir yang diperbarui setiap sensor mengirim data</div>
                         </div>
                     </div>
                     <div class="history-table-wrap">
@@ -475,7 +476,7 @@
                                     <tr>
                                         <td>{{ $log->room_name ?? '-' }}</td>
                                         <td>{{ $log->device_name ?? '-' }}</td>
-                                        <td>{{ optional($log->created_at)->format('d/m/Y H:i:s') }}</td>
+                                        <td>{{ optional($log->updated_at)->timezone('Asia/Jakarta')->format('d/m/Y H:i:s') }}</td>
                                         <td>{{ number_format($log->voltage ?? 0, 2) }} V</td>
                                         <td>{{ number_format($log->current ?? 0, 2) }} A</td>
                                         <td>{{ number_format($log->power ?? 0, 2) }} W</td>
@@ -493,9 +494,11 @@
                             </tbody>
                         </table>
                     </div>
-                    <div style="margin-top: 18px;">
-                        {{ $logs->links() }}
-                    </div>
+                    @if (method_exists($logs, 'hasPages') && $logs->hasPages())
+                        <div style="margin-top: 18px;">
+                            {{ $logs->links() }}
+                        </div>
+                    @endif
                 </div>
             </section>
             <nav class="sv-bottomnav">

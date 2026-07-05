@@ -35,4 +35,18 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | SMARTVOLT IoT Service
+    |--------------------------------------------------------------------------
+    |
+    | API key untuk komunikasi ESP32 ke backend Laravel.
+    | Key ini dibaca dari file .env melalui IOT_API_KEY.
+    |
+    */
+
+    'iot' => [
+        'api_key' => env('IOT_API_KEY'),
+    ],
+
 ];
