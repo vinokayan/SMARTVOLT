@@ -519,158 +519,348 @@
             </nav>
         </main>
     </div>
-    <script>
-        /* ============================================
-           Toggle Estimasi Pembayaran
-        ============================================ */
-        function togglePaymentEstimation(key) {
-            const item = document.getElementById(`estimation-item-${key}`);
-            if (!item) {
-                return;
-            }
-            item.classList.toggle('open');
+  <script>
+    function togglePaymentEstimation(key) {
+        const item = document.getElementById(`estimation-item-${key}`);
+
+        if (!item) {
+            return;
         }
-        /* ============================================
-           Grafik Pemakaian Listrik
-        ============================================ */
-        const chartEl = document.getElementById('energyHistoryChart');
-        if (chartEl) {
-            const chartLabels = JSON.parse(chartEl.dataset.labels || '[]');
-            const chartPower = JSON.parse(chartEl.dataset.power || '[]');
-            const chartEnergy = JSON.parse(chartEl.dataset.energy || '[]');
-            const ctx = chartEl.getContext('2d');
-            new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: chartLabels,
-                    datasets: [
-                        {
-                            label: 'Daya (W)',
-                            data: chartPower,
-                            tension: 0.35
-                        },
-                        {
-                            label: 'Energi (kWh)',
-                            data: chartEnergy,
-                            tension: 0.35
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false
+
+        item.classList.toggle('open');
+    }
+
+    const chartEl = document.getElementById('energyHistoryChart');
+
+    if (chartEl) {
+        const chartLabels = JSON.parse(chartEl.dataset.labels || '[]');
+        const chartPower = JSON.parse(chartEl.dataset.power || '[]');
+        const chartEnergy = JSON.parse(chartEl.dataset.energy || '[]');
+        const ctx = chartEl.getContext('2d');
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: chartLabels,
+                datasets: [
+                    {
+                        label: 'Daya (W)',
+                        data: chartPower,
+                        tension: 0.35
+                    },
+                    {
+                        label: 'Energi (kWh)',
+                        data: chartEnergy,
+                        tension: 0.35
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false
+            }
+        });
+    }
+
+    function normalizeExportReport(data) {
+        const report = {
+            generatedAt: new Date().toLocaleString('id-ID'),
+            devices: [],
+            summary: []
+        };
+
+        if (data && !Array.isArray(data) && (data.devices || data.summary)) {
+            report.generatedAt = data.generated_at || report.generatedAt;
+            report.devices = data.devices || [];
+            report.summary = data.summary || [];
+
+            return report;
+        }
+
+        const rows = Array.isArray(data) ? data : [];
+
+        report.devices = rows
+            .filter((row) => {
+                if (row.type === 'summary') {
+                    return false;
                 }
+
+                if (row.type === 'device') {
+                    return true;
+                }
+
+                const room = row.Ruangan || row.Room || '';
+                const device = row.Perangkat || row.Device || '';
+                const summary = row['Ringkasan Pemakaian'] || '';
+
+                return room &&
+                    device &&
+                    room !== '-' &&
+                    device !== '-' &&
+                    room !== 'RINGKASAN PEMAKAIAN' &&
+                    summary !== 'RINGKASAN PEMAKAIAN';
+            })
+            .map((row) => ({
+                ruangan: row.ruangan || row.Ruangan || row.Room || '-',
+                perangkat: row.perangkat || row.Perangkat || row.Device || '-',
+                waktu: row.waktu || row.Waktu || row.Time || '-',
+                tegangan: row.tegangan || row['Tegangan (V)'] || row.Voltage || row['Voltage (V)'] || '0',
+                arus: row.arus || row['Arus (A)'] || row.Current || row['Current (A)'] || '0',
+                daya: row.daya || row['Daya (W)'] || row.Power || row['Power (W)'] || '0',
+                energi: row.energi || row['Energi (kWh)'] || row['Energy (kWh)'] || '0'
+            }));
+
+        const typedSummaryRows = rows.filter((row) => row.type === 'summary');
+
+        if (typedSummaryRows.length) {
+            report.summary = typedSummaryRows.map((row) => ({
+                label: row.label || '-',
+                hari_ini: row.hari_ini || row['Hari Ini'] || '-',
+                minggu_ini: row.minggu_ini || row['Minggu Ini'] || '-',
+                bulan_ini: row.bulan_ini || row['Bulan Ini'] || '-'
+            }));
+        } else {
+            const findSummaryRow = (label) => rows.find((row) => {
+                return row.Ruangan === label ||
+                    row.Room === label ||
+                    row['Ringkasan Pemakaian'] === label;
+            }) || {};
+
+            ['Energi (kWh)', 'Tarif / kWh', 'Estimasi Pembayaran'].forEach((label) => {
+                const row = findSummaryRow(label);
+
+                report.summary.push({
+                    label,
+                    hari_ini: row['Hari Ini'] || '-',
+                    minggu_ini: row['Minggu Ini'] || '-',
+                    bulan_ini: row['Bulan Ini'] || '-'
+                });
             });
         }
-        /* ============================================
-           Ekspor PDF
-        ============================================ */
-        async function exportPDF() {
-            const btn = document.querySelector('button[onclick="exportPDF()"]');
-            const originalHTML = btn.innerHTML;
-            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Menyiapkan PDF...';
-            btn.disabled = true;
-            try {
-                const response = await fetch('{{ route("energy.history.export") }}');
-                if (!response.ok) throw new Error('Gagal mengambil data.');
-                const data = await response.json();
-                if (data.length === 0) {
-                    alert('Tidak ada data untuk diekspor.');
-                    return;
+
+        return report;
+    }
+
+    function buildReportHtml(report) {
+        const deviceRows = report.devices.length
+            ? report.devices
+            : [
+                {
+                    ruangan: '-',
+                    perangkat: 'Tidak ada data',
+                    waktu: '-',
+                    tegangan: '-',
+                    arus: '-',
+                    daya: '-',
+                    energi: '-'
                 }
-                let html = `
-                    <div style="padding: 30px; font-family: Arial, sans-serif; color: #000; background: #fff; width: 800px;">
-                        <div style="text-align: center; margin-bottom: 25px;">
-                            <h2 style="margin: 0; color: #111; font-size: 22px;">Laporan Pemakaian Listrik</h2>
-                            <p style="margin: 5px 0 0 0; color: #555; font-size: 14px;">SmartVolt IoT Monitoring</p>
-                            <p style="margin: 5px 0 0 0; color: #888; font-size: 12px;">Dibuat pada: ${new Date().toLocaleString('id-ID')}</p>
-                        </div>
-                        <table style="width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid #ddd;">
-                            <thead>
-                                <tr style="background-color: #f3f4f6; color: #111; text-align: left;">
-                                    <th style="padding: 10px; border: 1px solid #ddd;">Ruangan</th>
-                                    <th style="padding: 10px; border: 1px solid #ddd;">Perangkat</th>
-                                    <th style="padding: 10px; border: 1px solid #ddd;">Waktu</th>
-                                    <th style="padding: 10px; border: 1px solid #ddd;">Tegangan (V)</th>
-                                    <th style="padding: 10px; border: 1px solid #ddd;">Arus (A)</th>
-                                    <th style="padding: 10px; border: 1px solid #ddd;">Daya (W)</th>
-                                    <th style="padding: 10px; border: 1px solid #ddd;">Energi (kWh)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                `;
-                data.forEach((row, index) => {
-                    const bg = index % 2 === 0 ? '#ffffff' : '#fafafa';
-                    html += `
-                        <tr style="background-color: ${bg};">
-                            <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Room'] || row['Ruangan'] || '-'}</td>
-                            <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Device'] || row['Perangkat'] || '-'}</td>
-                            <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Waktu'] || row['Time'] || '-'}</td>
-                            <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Voltage (V)'] || row['Tegangan (V)'] || '0'}</td>
-                            <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Current (A)'] || row['Arus (A)'] || '0'}</td>
-                            <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Power (W)'] || row['Daya (W)'] || '0'}</td>
-                            <td style="padding: 8px 10px; border: 1px solid #ddd; color: #000;">${row['Energy (kWh)'] || row['Energi (kWh)'] || '0'}</td>
+            ];
+
+        return `
+            <div style="padding: 28px; font-family: Arial, sans-serif; color: #111; background: #fff; width: 980px;">
+                <div style="text-align: center; margin-bottom: 24px;">
+                    <h2 style="margin: 0; font-size: 24px; font-weight: 800;">
+                        Laporan Pemakaian Listrik
+                    </h2>
+                    <p style="margin: 6px 0 0; color: #555; font-size: 15px;">
+                        SmartVolt IoT Monitoring
+                    </p>
+                    <p style="margin: 6px 0 0; color: #777; font-size: 12px;">
+                        Dibuat pada: ${report.generatedAt}
+                    </p>
+                </div>
+
+                <h3 style="margin: 0 0 10px; font-size: 14px; letter-spacing: .04em;">
+                    DATA PERANGKAT
+                </h3>
+
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 28px;">
+                    <thead>
+                        <tr style="background: #f3f4f6;">
+                            <th style="padding: 9px; border: 1px solid #d9dce1; text-align: left;">Ruangan</th>
+                            <th style="padding: 9px; border: 1px solid #d9dce1; text-align: left;">Perangkat</th>
+                            <th style="padding: 9px; border: 1px solid #d9dce1; text-align: left;">Waktu</th>
+                            <th style="padding: 9px; border: 1px solid #d9dce1; text-align: left;">Tegangan (V)</th>
+                            <th style="padding: 9px; border: 1px solid #d9dce1; text-align: left;">Arus (A)</th>
+                            <th style="padding: 9px; border: 1px solid #d9dce1; text-align: left;">Daya (W)</th>
+                            <th style="padding: 9px; border: 1px solid #d9dce1; text-align: left;">Energi (kWh)</th>
                         </tr>
-                    `;
-                });
-                html += `
-                            </tbody>
-                        </table>
-                    </div>
-                `;
-                const opt = {
-                    margin: [10, 10, 10, 10],
-                    filename: 'Pemakaian_Listrik_SmartVolt.pdf',
-                    image: { type: 'jpeg', quality: 0.98 },
-                    html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-                };
-                await html2pdf().set(opt).from(html).save();
-            } catch (error) {
-                console.error('Gagal ekspor PDF:', error);
-                alert('Gagal mengekspor data ke PDF.');
-            } finally {
-                btn.innerHTML = originalHTML;
-                btn.disabled = false;
+                    </thead>
+                    <tbody>
+                        ${deviceRows.map((row, index) => `
+                            <tr style="background: ${index % 2 === 0 ? '#fff' : '#fafafa'};">
+                                <td style="padding: 8px 9px; border: 1px solid #d9dce1;">${row.ruangan}</td>
+                                <td style="padding: 8px 9px; border: 1px solid #d9dce1;">${row.perangkat}</td>
+                                <td style="padding: 8px 9px; border: 1px solid #d9dce1;">${row.waktu}</td>
+                                <td style="padding: 8px 9px; border: 1px solid #d9dce1;">${row.tegangan}</td>
+                                <td style="padding: 8px 9px; border: 1px solid #d9dce1;">${row.arus}</td>
+                                <td style="padding: 8px 9px; border: 1px solid #d9dce1;">${row.daya}</td>
+                                <td style="padding: 8px 9px; border: 1px solid #d9dce1;">${row.energi}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+
+                <h3 style="margin: 0 0 10px; font-size: 14px; letter-spacing: .04em;">
+                    RINGKASAN PEMAKAIAN
+                </h3>
+
+                <table style="width: 620px; border-collapse: collapse; font-size: 12px;">
+                    <thead>
+                        <tr style="background: #f3f4f6;">
+                            <th style="padding: 9px; border: 1px solid #d9dce1; text-align: left;"></th>
+                            <th style="padding: 9px; border: 1px solid #d9dce1; text-align: left;">Hari Ini</th>
+                            <th style="padding: 9px; border: 1px solid #d9dce1; text-align: left;">Minggu Ini</th>
+                            <th style="padding: 9px; border: 1px solid #d9dce1; text-align: left;">Bulan Ini</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${report.summary.map((row) => `
+                            <tr>
+                                <td style="padding: 8px 9px; border: 1px solid #d9dce1; font-weight: 700;">${row.label}</td>
+                                <td style="padding: 8px 9px; border: 1px solid #d9dce1;">${row.hari_ini}</td>
+                                <td style="padding: 8px 9px; border: 1px solid #d9dce1;">${row.minggu_ini}</td>
+                                <td style="padding: 8px 9px; border: 1px solid #d9dce1;">${row.bulan_ini}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    async function exportPDF() {
+        const btn = document.querySelector('button[onclick="exportPDF()"]');
+        const originalHTML = btn.innerHTML;
+
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Menyiapkan PDF...';
+        btn.disabled = true;
+
+        try {
+            const response = await fetch('{{ route("energy.history.export") }}');
+
+            if (!response.ok) {
+                throw new Error('Gagal mengambil data.');
             }
-        }
-        /* ============================================
-           Ekspor Excel
-        ============================================ */
-        async function exportExcel() {
-            const btn = document.querySelector('button[onclick="exportExcel()"]');
-            const originalHTML = btn.innerHTML;
-            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Memuat...';
-            btn.disabled = true;
-            try {
-                const response = await fetch('{{ route("energy.history.export") }}');
-                if (!response.ok) throw new Error('Gagal mengambil data.');
-                const data = await response.json();
-                if (data.length === 0) {
-                    alert('Tidak ada data untuk diekspor.');
-                    return;
+
+            const data = await response.json();
+            const report = normalizeExportReport(data);
+
+            if (report.devices.length === 0 && report.summary.length === 0) {
+                alert('Tidak ada data untuk diekspor.');
+                return;
+            }
+
+            const opt = {
+                margin: [10, 10, 10, 10],
+                filename: 'Pemakaian_Listrik_SmartVolt.pdf',
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: {
+                    scale: 2,
+                    useCORS: true,
+                    backgroundColor: '#ffffff'
+                },
+                jsPDF: {
+                    unit: 'mm',
+                    format: 'a4',
+                    orientation: 'landscape'
                 }
-                const worksheet = XLSX.utils.json_to_sheet(data);
-                const workbook = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(workbook, worksheet, "Pemakaian Listrik");
-                worksheet['!cols'] = [
-                    {wch: 20},
-                    {wch: 22},
-                    {wch: 22},
-                    {wch: 15},
-                    {wch: 15},
-                    {wch: 15},
-                    {wch: 18}
-                ];
-                XLSX.writeFile(workbook, "Pemakaian_Listrik_SmartVolt.xlsx");
-            } catch (error) {
-                console.error('Gagal ekspor Excel:', error);
-                alert('Gagal mengekspor data.');
-            } finally {
-                btn.innerHTML = originalHTML;
-                btn.disabled = false;
-            }
+            };
+
+            await html2pdf().set(opt).from(buildReportHtml(report)).save();
+        } catch (error) {
+            console.error('Gagal ekspor PDF:', error);
+            alert('Gagal mengekspor data ke PDF.');
+        } finally {
+            btn.innerHTML = originalHTML;
+            btn.disabled = false;
         }
-    </script>
-</body>
-</html>
+    }
+
+    async function exportExcel() {
+        const btn = document.querySelector('button[onclick="exportExcel()"]');
+        const originalHTML = btn.innerHTML;
+
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Memuat...';
+        btn.disabled = true;
+
+        try {
+            const response = await fetch('{{ route("energy.history.export") }}');
+
+            if (!response.ok) {
+                throw new Error('Gagal mengambil data.');
+            }
+
+            const data = await response.json();
+            const report = normalizeExportReport(data);
+
+            if (report.devices.length === 0 && report.summary.length === 0) {
+                alert('Tidak ada data untuk diekspor.');
+                return;
+            }
+
+            const deviceRows = report.devices.length
+                ? report.devices
+                : [
+                    {
+                        ruangan: '-',
+                        perangkat: 'Tidak ada data',
+                        waktu: '-',
+                        tegangan: '-',
+                        arus: '-',
+                        daya: '-',
+                        energi: '-'
+                    }
+                ];
+
+            const rows = [
+                ['Laporan Pemakaian Listrik'],
+                ['SmartVolt IoT Monitoring'],
+                ['Dibuat pada', report.generatedAt],
+                [],
+                ['DATA PERANGKAT'],
+                ['Ruangan', 'Perangkat', 'Waktu', 'Tegangan (V)', 'Arus (A)', 'Daya (W)', 'Energi (kWh)'],
+                ...deviceRows.map((row) => [
+                    row.ruangan,
+                    row.perangkat,
+                    row.waktu,
+                    row.tegangan,
+                    row.arus,
+                    row.daya,
+                    row.energi
+                ]),
+                [],
+                ['RINGKASAN PEMAKAIAN'],
+                ['', 'Hari Ini', 'Minggu Ini', 'Bulan Ini'],
+                ...report.summary.map((row) => [
+                    row.label,
+                    row.hari_ini,
+                    row.minggu_ini,
+                    row.bulan_ini
+                ])
+            ];
+
+            const worksheet = XLSX.utils.aoa_to_sheet(rows);
+            const workbook = XLSX.utils.book_new();
+
+            worksheet['!cols'] = [
+                { wch: 24 },
+                { wch: 24 },
+                { wch: 22 },
+                { wch: 16 },
+                { wch: 16 },
+                { wch: 16 },
+                { wch: 18 }
+            ];
+
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Pemakaian Listrik');
+            XLSX.writeFile(workbook, 'Pemakaian_Listrik_SmartVolt.xlsx');
+        } catch (error) {
+            console.error('Gagal ekspor Excel:', error);
+            alert('Gagal mengekspor data.');
+        } finally {
+            btn.innerHTML = originalHTML;
+            btn.disabled = false;
+        }
+    }
+</script>

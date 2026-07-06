@@ -1,315 +1,273 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Http\Controllers;
 
-use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\EnergyLog;
-use App\Models\Room;
-use App\Models\SmartvoltNotification;
 use App\Models\SystemSetting;
-use Illuminate\Http\Exceptions\HttpResponseException;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Auth;
 
-class EnergyApiController extends Controller
+class EnergyController extends Controller
 {
-    private function checkApiKey(Request $request): void
+    public function index(Request $request)
     {
-        $configuredApiKey = config('services.iot.api_key');
-        $requestApiKey = (string) $request->header('X-API-KEY');
-
-        if (blank($configuredApiKey)) {
-            throw new HttpResponseException(response()->json([
-                'success' => false,
-                'message' => 'IoT API key belum dikonfigurasi di server.',
-            ], 500));
-        }
-
-        if (! hash_equals((string) $configuredApiKey, $requestApiKey)) {
-            throw new HttpResponseException(response()->json([
-                'success' => false,
-                'message' => 'Invalid API Key.',
-            ], 401));
-        }
-    }
-
-    public function store(Request $request)
-    {
-        $this->checkApiKey($request);
-
-        $validated = $request->validate([
-            'esp_unit_id' => ['nullable', 'string', 'max:100', 'required_without:esp32_device_id'],
-            'esp32_device_id' => ['nullable', 'string', 'max:100', 'required_without:esp_unit_id'],
-            'relay_code' => ['nullable', 'string', 'max:100'],
-            'voltage' => ['required', 'numeric'],
-            'current' => ['required', 'numeric'],
-            'power' => ['required', 'numeric'],
-            'energy' => ['required', 'numeric'],
-            'frequency' => ['nullable', 'numeric'],
-            'power_factor' => ['nullable', 'numeric'],
-        ]);
-
-        $espIdentifier = $validated['esp_unit_id'] ?? $validated['esp32_device_id'];
-
-        $devicesQuery = $this->deviceQueryForEsp($espIdentifier);
-
-        if (! empty($validated['relay_code']) && Schema::hasColumn('devices', 'relay_code')) {
-            $devicesQuery->where('relay_code', $validated['relay_code']);
-        }
-
-        $devices = $this->applyRelayOrder($devicesQuery)->get();
-
-        if ($devices->isEmpty()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Device tidak ditemukan. Pastikan ESP Unit ID dan relay sudah terdaftar.',
-                'esp_unit_id' => $espIdentifier,
-                'relay_code' => $validated['relay_code'] ?? null,
-            ], 404);
-        }
-
-        $energyData = [
-            'voltage' => $validated['voltage'],
-            'current' => $validated['current'],
-            'power' => $validated['power'],
-            'energy' => $validated['energy'],
-            'frequency' => $validated['frequency'] ?? null,
-            'power_factor' => $validated['power_factor'] ?? null,
+        $filters = [
+            'device_id' => $request->input('device_id'),
+            'date_from' => $request->input('date_from'),
+            'date_to' => $request->input('date_to'),
         ];
 
-        $logs = $devices->map(function (Device $device) use ($energyData) {
-            return $this->saveLatestEnergyLog($device, $energyData);
+        $query = $this->energyLogQuery($filters);
+
+        $logs = (clone $query)
+            ->latest()
+            ->paginate(20)
+            ->appends($request->query());
+
+        $logs->getCollection()->transform(function ($log) {
+            $log->room_name = $log->device?->room?->name ?? '-';
+            $log->device_name = $log->device?->name ?? '-';
+
+            return $log;
         });
 
-        $this->createPowerLimitNotification($devices->first(), $energyData, $espIdentifier);
+        $devices = Device::with('room')
+            ->whereHas('room', function ($roomQuery) {
+                $roomQuery->where('user_id', Auth::id());
+            })
+            ->orderBy('name')
+            ->get();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Data sensor berhasil disimpan.',
-            'esp_unit_id' => $espIdentifier,
-            'relay_code' => $validated['relay_code'] ?? null,
-            'updated_devices' => $devices->count(),
-            'data' => $logs->values(),
-        ]);
+        $summary = [
+            'total_logs' => (clone $query)->count(),
+            'max_power' => (clone $query)->max('power') ?? 0,
+            'avg_power' => round((clone $query)->avg('power') ?? 0, 2),
+            'avg_voltage' => round((clone $query)->avg('voltage') ?? 0, 2),
+            'usage_kwh' => round((clone $query)->max('energy') ?? 0, 4),
+            'latest_time' => optional((clone $query)->latest()->first())->created_at?->format('d/m/Y H:i:s'),
+        ];
+
+        $chartLogs = (clone $query)
+            ->latest()
+            ->take(10)
+            ->get()
+            ->reverse()
+            ->values();
+
+        $chart = [
+            'labels' => $chartLogs->map(fn ($log) => optional($log->created_at)->format('H:i')),
+            'power' => $chartLogs->map(fn ($log) => round($log->power ?? 0, 2)),
+            'energy' => $chartLogs->map(fn ($log) => round($log->energy ?? 0, 4)),
+        ];
+
+        $electricityTariff = $this->getElectricityTariff();
+        $paymentEstimations = $this->buildPaymentEstimations($devices->pluck('id'), $electricityTariff);
+
+        return view('auth.energy-history', compact(
+            'logs',
+            'devices',
+            'summary',
+            'chart',
+            'filters',
+            'paymentEstimations',
+            'electricityTariff'
+        ));
     }
 
-    public function command(Request $request, string $esp32_device_id)
+    public function export(Request $request)
     {
-        $this->checkApiKey($request);
+        $filters = [
+            'device_id' => $request->input('device_id'),
+            'date_from' => $request->input('date_from'),
+            'date_to' => $request->input('date_to'),
+        ];
 
-        $device = $this->applyRelayOrder(
-            $this->deviceQueryForEsp($esp32_device_id)
-        )->first();
+        $query = $this->energyLogQuery($filters);
+        $electricityTariff = $this->getElectricityTariff();
+        $deviceIds = $this->getExportDeviceIds($filters);
+        $paymentEstimations = $this->buildPaymentEstimations($deviceIds, $electricityTariff);
 
-        if (! $device) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Device tidak ditemukan.',
-            ], 404);
-        }
+        $exportLogs = (clone $query)
+            ->latest()
+            ->get();
 
-        $systemSetting = $this->resolveSystemSetting($device);
-        $isOn = $this->isDeviceOn($device->status);
+        $exportUsageKwh = (float) $exportLogs->sum(function ($log) {
+            return $this->getLogEnergyKwh($log);
+        });
 
-        return response()->json([
-            'success' => true,
-            'esp_unit_id' => $device->esp_unit_id ?? $device->esp32_device_id,
-            'esp32_device_id' => $device->esp32_device_id,
-            'device_id' => $device->id,
-            'device_name' => $device->name,
-            'relay_code' => (string) ($device->relay_code ?? '1'),
-            'relay' => $isOn,
-            'status' => $isOn ? 'ON' : 'OFF',
-            'refresh_interval' => $systemSetting?->refresh_interval ?? 5,
-        ]);
-    }
+        $exportEstimatedCost = $exportUsageKwh * $electricityTariff;
 
-    public function commands(Request $request, string $esp32_device_id)
-    {
-        $this->checkApiKey($request);
+        $summaryRows = collect($paymentEstimations)
+            ->map(function ($estimation) {
+                return [
+                    'Room' => 'Ringkasan Pemakaian',
+                    'Device' => $estimation['label'],
+                    'Waktu' => $estimation['period'],
+                    'Voltage (V)' => '-',
+                    'Current (A)' => '-',
+                    'Power (W)' => '-',
+                    'Energy (kWh)' => number_format($estimation['usage_kwh'], 4, ',', '.'),
+                    'Tarif per kWh' => 'Rp ' . number_format($estimation['tariff'], 0, ',', '.'),
+                    'Estimasi Pembayaran' => 'Rp ' . number_format($estimation['estimated_cost'], 0, ',', '.'),
+                ];
+            })
+            ->push([
+                'Room' => 'TOTAL',
+                'Device' => 'Total Data yang Diekspor',
+                'Waktu' => Carbon::now()->format('d/m/Y H:i:s'),
+                'Voltage (V)' => '-',
+                'Current (A)' => '-',
+                'Power (W)' => '-',
+                'Energy (kWh)' => number_format($exportUsageKwh, 4, ',', '.'),
+                'Tarif per kWh' => 'Rp ' . number_format($electricityTariff, 0, ',', '.'),
+                'Estimasi Pembayaran' => 'Rp ' . number_format($exportEstimatedCost, 0, ',', '.'),
+            ]);
 
-        $devices = $this->applyRelayOrder(
-            $this->deviceQueryForEsp($esp32_device_id)
-        )->get();
-
-        if ($devices->isEmpty()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Tidak ada device untuk ESP32 ini.',
-                'esp_unit_id' => $esp32_device_id,
-                'esp32_device_id' => $esp32_device_id,
-                'refresh_interval' => 5,
-                'relays' => [],
-            ], 404);
-        }
-
-        $firstDevice = $devices->first();
-        $systemSetting = $this->resolveSystemSetting($firstDevice);
-
-        $relays = $devices->map(function (Device $device) {
-            $isOn = $this->isDeviceOn($device->status);
-
-            return [
-                'device_id' => $device->id,
-                'device_name' => $device->name,
-                'room_id' => $device->room_id,
-                'room_name' => $device->room?->name,
-                'relay_code' => (string) ($device->relay_code ?? $device->id),
-                'relay' => $isOn,
-                'status' => $isOn ? 'ON' : 'OFF',
-            ];
-        })->values();
-
-        return response()->json([
-            'success' => true,
-            'esp_unit_id' => $firstDevice->esp_unit_id ?? $firstDevice->esp32_device_id,
-            'esp32_device_id' => $firstDevice->esp32_device_id,
-            'refresh_interval' => $systemSetting?->refresh_interval ?? 5,
-            'total_relays' => $relays->count(),
-            'relays' => $relays,
-        ]);
-    }
-
-    private function deviceQueryForEsp(string $espIdentifier)
-    {
-        return Device::query()
-            ->with('room')
-            ->where(function ($query) use ($espIdentifier) {
-                if (Schema::hasColumn('devices', 'esp_unit_id')) {
-                    $query->where('esp_unit_id', $espIdentifier);
-                }
-
-                if (Schema::hasColumn('devices', 'esp32_device_id')) {
-                    $query->orWhere('esp32_device_id', $espIdentifier);
-                }
-            });
-    }
-
-    private function applyRelayOrder($query)
-    {
-        if (Schema::hasColumn('devices', 'relay_code')) {
-            return $query->orderBy('relay_code');
-        }
-
-        return $query->orderBy('id');
-    }
-
-    private function saveLatestEnergyLog(Device $device, array $energyData): EnergyLog
-    {
-        $log = EnergyLog::where('device_id', $device->id)
-            ->latest('id')
-            ->first();
-
-        if ($log) {
-            $log->update($energyData);
-        } else {
-            $log = EnergyLog::create(array_merge([
-                'device_id' => $device->id,
-            ], $energyData));
-        }
-
-        EnergyLog::where('device_id', $device->id)
-            ->where('id', '!=', $log->id)
-            ->delete();
-
-        return $log->refresh();
-    }
-
-    private function createPowerLimitNotification(Device $device, array $energyData, string $espIdentifier): void
-    {
-        if (! Schema::hasTable('smartvolt_notifications')) {
-            return;
-        }
-
-        $power = (float) ($energyData['power'] ?? 0);
-        $systemSetting = $this->resolveSystemSetting($device);
-        $powerLimit = (float) ($systemSetting?->power_limit ?? 0);
-
-        if ($powerLimit <= 0 || $power < $powerLimit) {
-            return;
-        }
-
-        $device->loadMissing('room');
-
-        $userId = $device->room?->user_id ?? $systemSetting?->user_id;
-
-        if (! $userId) {
-            return;
-        }
-
-        $recentNotificationExists = SmartvoltNotification::where('user_id', $userId)
-            ->where('device_id', $device->id)
-            ->where('type', 'power_limit_exceeded')
-            ->where('created_at', '>=', now()->subMinutes(15))
-            ->exists();
-
-        if ($recentNotificationExists) {
-            return;
-        }
-
-        SmartvoltNotification::create([
-            'user_id' => $userId,
-            'device_id' => $device->id,
-            'type' => 'power_limit_exceeded',
-            'severity' => 'danger',
-            'title' => 'Daya melebihi batas',
-            'message' => sprintf(
-                'ESP %s membaca daya %.0f W, melewati batas %.0f W. Matikan beberapa perangkat agar MCB tidak turun.',
-                $espIdentifier,
-                $power,
-                $powerLimit
-            ),
-            'data' => [
-                'power' => $power,
-                'power_limit' => $powerLimit,
-                'device_id' => $device->id,
-                'device_name' => $device->name,
-                'esp_identifier' => $espIdentifier,
-                'room_id' => $device->room_id,
-                'room_name' => $device->room?->name,
+        $separatorRow = collect([
+            [
+                'Room' => '-',
+                'Device' => '-',
+                'Waktu' => '-',
+                'Voltage (V)' => '-',
+                'Current (A)' => '-',
+                'Power (W)' => '-',
+                'Energy (kWh)' => '-',
+                'Tarif per kWh' => '-',
+                'Estimasi Pembayaran' => '-',
             ],
         ]);
+
+        $logRows = $exportLogs->map(function ($log) use ($electricityTariff) {
+            $energyKwh = $this->getLogEnergyKwh($log);
+            $estimatedCost = $energyKwh * $electricityTariff;
+
+            return [
+                'Room' => $log->device?->room?->name ?? '-',
+                'Device' => $log->device?->name ?? '-',
+                'Waktu' => optional($log->created_at)->format('d/m/Y H:i:s'),
+                'Voltage (V)' => number_format($log->voltage ?? 0, 2, ',', '.'),
+                'Current (A)' => number_format($log->current ?? 0, 2, ',', '.'),
+                'Power (W)' => number_format($log->power ?? 0, 2, ',', '.'),
+                'Energy (kWh)' => number_format($energyKwh, 4, ',', '.'),
+                'Tarif per kWh' => 'Rp ' . number_format($electricityTariff, 0, ',', '.'),
+                'Estimasi Pembayaran' => 'Rp ' . number_format($estimatedCost, 0, ',', '.'),
+            ];
+        });
+
+        return response()->json(
+            $summaryRows
+                ->concat($separatorRow)
+                ->concat($logRows)
+                ->values()
+        );
     }
 
-    private function isDeviceOn($status): bool
+    private function energyLogQuery(array $filters)
     {
-        if (is_bool($status)) {
-            return $status;
+        $query = EnergyLog::with('device.room')
+            ->whereHas('device.room', function ($roomQuery) {
+                $roomQuery->where('user_id', Auth::id());
+            });
+
+        if (!empty($filters['device_id'])) {
+            $query->where('device_id', $filters['device_id']);
         }
 
-        if (is_numeric($status)) {
-            return (int) $status === 1;
+        if (!empty($filters['date_from'])) {
+            $query->whereDate('created_at', '>=', $filters['date_from']);
         }
 
-        return in_array(strtolower((string) $status), [
-            'on',
-            'nyala',
-            'active',
-            'aktif',
-            'true',
-            '1',
-        ], true);
+        if (!empty($filters['date_to'])) {
+            $query->whereDate('created_at', '<=', $filters['date_to']);
+        }
+
+        return $query;
     }
 
-    private function resolveSystemSetting(Device $device): ?SystemSetting
+    private function getElectricityTariff(): float
     {
-        if (Schema::hasColumn('system_settings', 'device_id')) {
-            $systemSetting = SystemSetting::where('device_id', $device->id)->first();
+        $systemSetting = SystemSetting::where('user_id', Auth::id())->first();
 
-            if ($systemSetting) {
-                return $systemSetting;
-            }
+        return (float) ($systemSetting?->electricity_tariff ?? 1444);
+    }
+
+    private function getExportDeviceIds(array $filters)
+    {
+        $devicesQuery = Device::whereHas('room', function ($roomQuery) {
+            $roomQuery->where('user_id', Auth::id());
+        });
+
+        if (!empty($filters['device_id'])) {
+            $devicesQuery->where('id', $filters['device_id']);
         }
 
-        if (! empty($device->room_id)) {
-            $roomUserId = Room::where('id', $device->room_id)->value('user_id');
+        return $devicesQuery->pluck('id');
+    }
 
-            if ($roomUserId) {
-                return SystemSetting::where('user_id', $roomUserId)->first();
-            }
+    private function buildPaymentEstimations($deviceIds, float $tariff): array
+    {
+        $now = Carbon::now();
+
+        return [
+            'today' => $this->buildPaymentEstimation(
+                label: 'Hari Ini',
+                startDate: Carbon::today(),
+                endDate: $now->copy(),
+                deviceIds: $deviceIds,
+                tariff: $tariff
+            ),
+            'week' => $this->buildPaymentEstimation(
+                label: 'Minggu Ini',
+                startDate: $now->copy()->startOfWeek(),
+                endDate: $now->copy(),
+                deviceIds: $deviceIds,
+                tariff: $tariff
+            ),
+            'month' => $this->buildPaymentEstimation(
+                label: 'Bulan Ini',
+                startDate: $now->copy()->startOfMonth(),
+                endDate: $now->copy(),
+                deviceIds: $deviceIds,
+                tariff: $tariff
+            ),
+        ];
+    }
+
+    private function buildPaymentEstimation(
+        string $label,
+        Carbon $startDate,
+        Carbon $endDate,
+        $deviceIds,
+        float $tariff
+    ): array {
+        $usageKwh = $this->calculateEnergyUsage($deviceIds, $startDate, $endDate);
+        $estimatedCost = $usageKwh * $tariff;
+
+        return [
+            'label' => $label,
+            'period' => $startDate->format('d/m/Y') . ' - ' . $endDate->format('d/m/Y'),
+            'usage_kwh' => round($usageKwh, 4),
+            'tariff' => round($tariff, 2),
+            'estimated_cost' => round($estimatedCost),
+            'formula' => round($usageKwh, 4) . ' kWh x Rp ' . number_format($tariff, 0, ',', '.'),
+        ];
+    }
+
+    private function calculateEnergyUsage($deviceIds, Carbon $startDate, Carbon $endDate): float
+    {
+        if ($deviceIds->isEmpty()) {
+            return 0;
         }
 
-        return null;
+        return (float) EnergyLog::whereIn('device_id', $deviceIds)
+            ->whereBetween('created_at', [$startDate, $endDate])
+            ->sum('energy');
+    }
+
+    private function getLogEnergyKwh(EnergyLog $log): float
+    {
+        return (float) ($log->energy_kwh ?? $log->energy ?? 0);
     }
 }
