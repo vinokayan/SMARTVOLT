@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pengaturan - SmartVolt</title>
 
-    <link rel="stylesheet" href="{{ asset('assets/css/smartvolt-brand.css') }}">
+    <link rel="stylesheet" href="{{ asset('assets/css/smartvolt-brand.css') }}?v={{ filemtime(public_path('assets/css/smartvolt-brand.css')) }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 
     <style>
@@ -589,6 +589,20 @@
                         <div>
                             <h1 class="sv-page-title">Pengaturan</h1>
                             <p class="sv-page-sub">Halo, {{ auth()->user()->name ?? 'User' }}</p>
+                        </div>
+                    </div>
+
+                    <div class="sv-topbar-right">
+                        <div class="sv-action-cluster">
+                            @include('components.notification-bell')
+
+                            <form action="{{ route('logout') }}" method="POST" class="sv-logout-form">
+                                @csrf
+                                <button type="submit" class="sv-btn sv-logout-btn">
+                                    <i class="bi bi-box-arrow-right"></i>
+                                    <span>Keluar</span>
+                                </button>
+                            </form>
                         </div>
                     </div>
                 </div>

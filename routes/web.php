@@ -8,6 +8,7 @@ use App\Http\Controllers\DeviceController;
 use App\Http\Controllers\EnergyController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\AdvancedModeController;
+use App\Http\Controllers\NotificationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -174,6 +175,18 @@ Route::middleware('auth')->group(function () {
 
     Route::put('/settings/system', [SettingsController::class, 'updateSystem'])
         ->name('settings.system.update');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Notifications
+    |--------------------------------------------------------------------------
+    */
+
+    Route::patch('/notifications/{notification}/read', [NotificationController::class, 'markAsRead'])
+        ->name('notifications.read');
+
+    Route::patch('/notifications/read-all', [NotificationController::class, 'markAllAsRead'])
+        ->name('notifications.read-all');
 
     /*
     |--------------------------------------------------------------------------

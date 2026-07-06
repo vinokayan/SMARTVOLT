@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Beranda - SmartVolt</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <link rel="stylesheet" href="{{ asset('assets/css/smartvolt-brand.css') }}">
+    <link rel="stylesheet" href="{{ asset('assets/css/smartvolt-brand.css') }}?v={{ filemtime(public_path('assets/css/smartvolt-brand.css')) }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -197,6 +197,20 @@
                             </p>
                         </div>
                     </div>
+
+                    <div class="sv-topbar-right">
+                        <div class="sv-action-cluster">
+                            @include('components.notification-bell')
+
+                            <form action="{{ route('logout') }}" method="POST" class="sv-logout-form">
+                                @csrf
+                                <button type="submit" class="sv-btn sv-logout-btn">
+                                    <i class="bi bi-box-arrow-right"></i>
+                                    <span>Keluar</span>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
                 </div>
             </header>
             <section class="sv-shell">
@@ -361,13 +375,6 @@
             </nav>
         </main>
     </div>
-    <form action="{{ route('logout') }}" method="POST" style="display:inline;">
-        @csrf
-        <button type="submit" class="sv-btn sv-logout-btn">
-            <i class="bi bi-box-arrow-right"></i>
-            <span>Keluar</span>
-        </button>
-    </form>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const roomCards = document.querySelectorAll('[data-room-card="true"]');

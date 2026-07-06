@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rooms - SmartVolt</title>
 
-    <link rel="stylesheet" href="{{ asset('assets/css/smartvolt-brand.css') }}">
+    <link rel="stylesheet" href="{{ asset('assets/css/smartvolt-brand.css') }}?v={{ filemtime(public_path('assets/css/smartvolt-brand.css')) }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 
     <style>
@@ -427,10 +427,7 @@
 
                     <div class="sv-topbar-right">
                         <div class="sv-action-cluster">
-                            <button class="sv-btn sv-notify-btn" type="button" aria-label="Notifications">
-                                <i class="bi bi-bell"></i>
-                                <span class="sv-notify-dot"></span>
-                            </button>
+                            @include('components.notification-bell')
 
                             <form action="{{ route('logout') }}" method="POST" class="sv-logout-form">
                                 @csrf
@@ -806,22 +803,17 @@
             <nav class="sv-bottomnav">
                 <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">
                     <i class="bi bi-house-door-fill"></i>
-                    <span>Dashboard</span>
-                </a>
-
-                <a href="{{ route('rooms') }}" class="{{ request()->routeIs('rooms*') ? 'active' : '' }}">
-                    <i class="bi bi-grid-1x2-fill"></i>
-                    <span>Rooms</span>
+                    <span>Beranda</span>
                 </a>
 
                 <a href="{{ route('energy.history') }}" class="{{ request()->routeIs('energy.history') ? 'active' : '' }}">
                     <i class="bi bi-bar-chart-fill"></i>
-                    <span>History</span>
+                    <span>Listrik</span>
                 </a>
 
                 <a href="{{ route('settings') }}" class="{{ request()->routeIs('settings*') ? 'active' : '' }}">
                     <i class="bi bi-gear-fill"></i>
-                    <span>Settings</span>
+                    <span>Pengaturan</span>
                 </a>
             </nav>
         </main>
