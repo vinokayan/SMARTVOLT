@@ -1,12 +1,56 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login | SmartVolt</title>
+    <title>Masuk | SmartVolt</title>
 
     <link rel="stylesheet" href="{{ asset('assets/css/smartvolt-brand.css') }}?v={{ filemtime(public_path('assets/css/smartvolt-brand.css')) }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+
+    <style>
+        .sv-auth-title,
+        .sv-showcase-title,
+        .sv-auth-subtitle,
+        .sv-showcase-desc,
+        .sv-feature-tile p {
+            overflow-wrap: anywhere;
+        }
+
+        .sv-helper {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: .5rem;
+        }
+
+        .sv-helper-separator {
+            opacity: .55;
+        }
+
+        .sv-field-hint {
+            display: block;
+            margin-top: .45rem;
+            font-size: .82rem;
+            line-height: 1.4;
+            opacity: .75;
+        }
+
+        @media (max-width: 575.98px) {
+            .sv-helper {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .sv-helper-separator {
+                display: none;
+            }
+
+            .sv-auth-foot {
+                text-align: center;
+            }
+        }
+    </style>
 </head>
 <body class="brand-body">
     @php
@@ -24,11 +68,11 @@
                 </div>
 
                 <h1 class="sv-showcase-title">
-                    Control energy like it is a living system.
+                    Kelola listrik rumah tanpa ribet.
                 </h1>
 
                 <p class="sv-showcase-desc">
-                    SmartVolt helps you monitor electricity usage, view device status, and control everything in real time through a modern and easy-to-use dashboard
+                    Pantau pemakaian energi, cek status perangkat, dan kendalikan ruangan dari satu dashboard SmartVolt yang praktis.
                 </p>
 
                 <div class="sv-feature-stack">
@@ -37,8 +81,8 @@
                             <i class="bi bi-activity"></i>
                         </div>
                         <div>
-                            <h4>Real-Time Energy Monitoring</h4>
-                            <p>Track power, energy, and device status instantly to keep your electricity usage under control</p>
+                            <h4>Pantauan Langsung</h4>
+                            <p>Lihat penggunaan daya dan status perangkat secara real-time agar konsumsi listrik lebih terkendali.</p>
                         </div>
                     </div>
 
@@ -47,8 +91,8 @@
                             <i class="bi bi-grid-3x3-gap-fill"></i>
                         </div>
                         <div>
-                            <h4>Room orchestration</h4>
-                            <p>Manage devices in every room easily without turning them on or off manually</p>
+                            <h4>Kontrol Tiap Ruangan</h4>
+                            <p>Nyalakan, matikan, dan kelola perangkat rumah dengan lebih mudah dari mana saja.</p>
                         </div>
                     </div>
                 </div>
@@ -68,40 +112,22 @@
 
         <section class="sv-auth-panel">
             <div class="sv-auth-card sv-glass">
-                <div class="sv-auth-mobile-hero">
-                    <div class="sv-badge">
-                        <i class="bi bi-shield-check"></i> Secure SmartVolt Access
-                    </div>
-
-                    @if ($mode !== 'forgot')
-                        <h1>Welcome back</h1>
-                        <p>Sign in to start monitoring energy, controlling devices, and managing your home electricity more efficiently</p>
-                    @else
-                        <h1>Lupa Password</h1>
-                        <p>Enter your email address</p>
-                    @endif
-
-                    <div class="sv-mini-wave">
-                        <span></span><span></span><span></span><span></span><span></span>
-                    </div>
-                </div>
-
                 <div class="sv-auth-body">
                     <div class="sv-badge">
-                        <i class="bi bi-shield-check"></i> Secure SmartVolt Access
+                        <i class="bi bi-shield-check"></i> Akses Aman SmartVolt
                     </div>
 
                     @if ($mode !== 'forgot')
-                        <h2 class="sv-auth-title">Welcome back</h2>
+                        <h2 class="sv-auth-title">Masuk ke SmartVolt</h2>
 
                         <p class="sv-auth-subtitle">
-                            Sign in to start monitoring energy, controlling devices, and managing your home electricity more efficiently
+                            Lanjutkan memantau energi, mengontrol perangkat, dan membuat penggunaan listrik rumah jadi lebih efisien.
                         </p>
                     @else
-                        <h2 class="sv-auth-title">Lupa Password</h2>
+                        <h2 class="sv-auth-title">Atur Ulang Kata Sandi</h2>
 
                         <p class="sv-auth-subtitle">
-                            Enter your email address
+                            Masukkan email akun Anda. Kami akan mengirimkan tautan untuk membuat kata sandi baru.
                         </p>
                     @endif
 
@@ -125,7 +151,7 @@
 
                             <div class="sv-field-grid">
                                 <div class="sv-field">
-                                    <label class="sv-label" for="email">Email</label>
+                                    <label class="sv-label" for="email">Alamat Email</label>
                                     <div class="sv-input-wrap">
                                         <i class="bi bi-envelope-fill sv-input-icon"></i>
                                         <input
@@ -134,15 +160,18 @@
                                             name="email"
                                             class="sv-input"
                                             value="{{ old('email') }}"
-                                            placeholder="Masukkan email"
+                                            placeholder="contoh@email.com"
+                                            autocomplete="email"
+                                            inputmode="email"
                                             required
                                             autofocus
                                         >
                                     </div>
+                                    <small class="sv-field-hint">Gunakan email yang terdaftar di akun SmartVolt Anda.</small>
                                 </div>
 
                                 <div class="sv-field">
-                                    <label class="sv-label" for="password">Password</label>
+                                    <label class="sv-label" for="password">Kata Sandi</label>
                                     <div class="sv-input-wrap">
                                         <i class="bi bi-lock-fill sv-input-icon"></i>
                                         <input
@@ -150,10 +179,11 @@
                                             id="password"
                                             name="password"
                                             class="sv-input"
-                                            placeholder="Masukkan password"
+                                            placeholder="Masukkan kata sandi"
+                                            autocomplete="current-password"
                                             required
                                         >
-                                        <button type="button" class="sv-password-toggle" id="togglePassword">
+                                        <button type="button" class="sv-password-toggle" id="togglePassword" aria-label="Tampilkan kata sandi">
                                             <i class="bi bi-eye-fill" id="togglePasswordIcon"></i>
                                         </button>
                                     </div>
@@ -163,24 +193,24 @@
                             <div class="sv-helper">
                                 <label>
                                     <input type="checkbox" name="remember" value="1">
-                                    <span>Remember me</span>
+                                    <span>Ingat saya</span>
                                 </label>
 
-                                <span>&nbsp;&nbsp;|&nbsp;&nbsp;</span>
+                                <span class="sv-helper-separator">|</span>
 
                                 <a href="{{ url('/login?mode=forgot') }}" class="sv-link">
-                                    Forgot Password?
+                                    Lupa kata sandi?
                                 </a>
                             </div>
 
                             <button type="submit" class="sv-btn sv-auth-submit success" id="loginButton">
-                                <span id="loginButtonText">Login</span>
+                                <span id="loginButtonText">Masuk</span>
                             </button>
                         </form>
 
                         <div class="sv-auth-foot">
-                            Don’t have an account?
-                            <a href="{{ url('/register') }}" class="sv-link">Register now</a>
+                            Belum punya akun?
+                            <a href="{{ url('/register') }}" class="sv-link">Daftar sekarang</a>
                         </div>
                     @else
                         <form id="forgotForm" action="{{ url('/forgot-password') }}" method="POST">
@@ -188,7 +218,7 @@
 
                             <div class="sv-field-grid">
                                 <div class="sv-field">
-                                    <label class="sv-label" for="forgot_email">Email</label>
+                                    <label class="sv-label" for="forgot_email">Alamat Email</label>
                                     <div class="sv-input-wrap">
                                         <i class="bi bi-envelope-fill sv-input-icon"></i>
                                         <input
@@ -197,20 +227,23 @@
                                             name="email"
                                             class="sv-input"
                                             value="{{ old('email') }}"
-                                            placeholder="Masukkan email Anda"
+                                            placeholder="contoh@email.com"
+                                            autocomplete="email"
+                                            inputmode="email"
                                             required
                                             autofocus
                                         >
                                     </div>
+                                    <small class="sv-field-hint">Pastikan email sesuai dengan akun SmartVolt yang terdaftar.</small>
                                 </div>
                             </div>
 
                             <button type="submit" class="sv-btn sv-auth-submit success" id="forgotButton">
-                                <span id="forgotButtonText">Send reset link</span>
+                                <span id="forgotButtonText">Kirim Tautan Reset</span>
                             </button>
 
                             <div class="sv-auth-foot">
-                                <a href="{{ url('/login') }}" class="sv-link">Back to Login</a>
+                                <a href="{{ url('/login') }}" class="sv-link">Kembali ke halaman masuk</a>
                             </div>
                         </form>
                     @endif
@@ -229,6 +262,7 @@
                 const isPassword = passwordInput.type === 'password';
                 passwordInput.type = isPassword ? 'text' : 'password';
                 togglePasswordIcon.className = isPassword ? 'bi bi-eye-slash-fill' : 'bi bi-eye-fill';
+                togglePassword.setAttribute('aria-label', isPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi');
             });
         }
 
@@ -239,7 +273,7 @@
         if (loginForm && loginButton && loginButtonText) {
             loginForm.addEventListener('submit', function () {
                 loginButton.disabled = true;
-                loginButtonText.textContent = 'Loading...';
+                loginButtonText.textContent = 'Memproses...';
             });
         }
 
@@ -250,9 +284,10 @@
         if (forgotForm && forgotButton && forgotButtonText) {
             forgotForm.addEventListener('submit', function () {
                 forgotButton.disabled = true;
-                forgotButtonText.textContent = 'Loading...';
+                forgotButtonText.textContent = 'Mengirim...';
             });
         }
     </script>
 </body>
 </html>
+```
