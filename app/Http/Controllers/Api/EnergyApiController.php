@@ -1,273 +1,357 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\EnergyLog;
+use App\Models\EnergyMeter;
+use App\Models\Room;
 use App\Models\SystemSetting;
-use Carbon\Carbon;
+use Carbon\CarbonImmutable;
+use Illuminate\Database\QueryException;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
-class EnergyController extends Controller
+class EnergyApiController extends Controller
 {
-    public function index(Request $request)
+    private function checkApiKey(Request $request): void
     {
-        $filters = [
-            'device_id' => $request->input('device_id'),
-            'date_from' => $request->input('date_from'),
-            'date_to' => $request->input('date_to'),
-        ];
+        $configuredApiKey = (string) config('services.iot.api_key');
+        $requestApiKey = (string) $request->header('X-API-KEY');
 
-        $query = $this->energyLogQuery($filters);
+        if ($configuredApiKey === '') {
+            throw new HttpResponseException(response()->json([
+                'success' => false,
+                'message' => 'IoT API key belum dikonfigurasi di server.',
+            ], 500));
+        }
 
-        $logs = (clone $query)
-            ->latest()
-            ->paginate(20)
-            ->appends($request->query());
-
-        $logs->getCollection()->transform(function ($log) {
-            $log->room_name = $log->device?->room?->name ?? '-';
-            $log->device_name = $log->device?->name ?? '-';
-
-            return $log;
-        });
-
-        $devices = Device::with('room')
-            ->whereHas('room', function ($roomQuery) {
-                $roomQuery->where('user_id', Auth::id());
-            })
-            ->orderBy('name')
-            ->get();
-
-        $summary = [
-            'total_logs' => (clone $query)->count(),
-            'max_power' => (clone $query)->max('power') ?? 0,
-            'avg_power' => round((clone $query)->avg('power') ?? 0, 2),
-            'avg_voltage' => round((clone $query)->avg('voltage') ?? 0, 2),
-            'usage_kwh' => round((clone $query)->max('energy') ?? 0, 4),
-            'latest_time' => optional((clone $query)->latest()->first())->created_at?->format('d/m/Y H:i:s'),
-        ];
-
-        $chartLogs = (clone $query)
-            ->latest()
-            ->take(10)
-            ->get()
-            ->reverse()
-            ->values();
-
-        $chart = [
-            'labels' => $chartLogs->map(fn ($log) => optional($log->created_at)->format('H:i')),
-            'power' => $chartLogs->map(fn ($log) => round($log->power ?? 0, 2)),
-            'energy' => $chartLogs->map(fn ($log) => round($log->energy ?? 0, 4)),
-        ];
-
-        $electricityTariff = $this->getElectricityTariff();
-        $paymentEstimations = $this->buildPaymentEstimations($devices->pluck('id'), $electricityTariff);
-
-        return view('auth.energy-history', compact(
-            'logs',
-            'devices',
-            'summary',
-            'chart',
-            'filters',
-            'paymentEstimations',
-            'electricityTariff'
-        ));
+        if (! hash_equals($configuredApiKey, $requestApiKey)) {
+            throw new HttpResponseException(response()->json([
+                'success' => false,
+                'message' => 'Invalid API Key.',
+            ], 401));
+        }
     }
 
-    public function export(Request $request)
+    /*
+     * PZEM disimpan ke satu energy meter.
+     * Tidak lagi disalin ke semua relay/device dalam ESP yang sama.
+     */
+    public function store(Request $request)
     {
-        $filters = [
-            'device_id' => $request->input('device_id'),
-            'date_from' => $request->input('date_from'),
-            'date_to' => $request->input('date_to'),
-        ];
+        $this->checkApiKey($request);
 
-        $query = $this->energyLogQuery($filters);
-        $electricityTariff = $this->getElectricityTariff();
-        $deviceIds = $this->getExportDeviceIds($filters);
-        $paymentEstimations = $this->buildPaymentEstimations($deviceIds, $electricityTariff);
-
-        $exportLogs = (clone $query)
-            ->latest()
-            ->get();
-
-        $exportUsageKwh = (float) $exportLogs->sum(function ($log) {
-            return $this->getLogEnergyKwh($log);
-        });
-
-        $exportEstimatedCost = $exportUsageKwh * $electricityTariff;
-
-        $summaryRows = collect($paymentEstimations)
-            ->map(function ($estimation) {
-                return [
-                    'Room' => 'Ringkasan Pemakaian',
-                    'Device' => $estimation['label'],
-                    'Waktu' => $estimation['period'],
-                    'Voltage (V)' => '-',
-                    'Current (A)' => '-',
-                    'Power (W)' => '-',
-                    'Energy (kWh)' => number_format($estimation['usage_kwh'], 4, ',', '.'),
-                    'Tarif per kWh' => 'Rp ' . number_format($estimation['tariff'], 0, ',', '.'),
-                    'Estimasi Pembayaran' => 'Rp ' . number_format($estimation['estimated_cost'], 0, ',', '.'),
-                ];
-            })
-            ->push([
-                'Room' => 'TOTAL',
-                'Device' => 'Total Data yang Diekspor',
-                'Waktu' => Carbon::now()->format('d/m/Y H:i:s'),
-                'Voltage (V)' => '-',
-                'Current (A)' => '-',
-                'Power (W)' => '-',
-                'Energy (kWh)' => number_format($exportUsageKwh, 4, ',', '.'),
-                'Tarif per kWh' => 'Rp ' . number_format($electricityTariff, 0, ',', '.'),
-                'Estimasi Pembayaran' => 'Rp ' . number_format($exportEstimatedCost, 0, ',', '.'),
-            ]);
-
-        $separatorRow = collect([
-            [
-                'Room' => '-',
-                'Device' => '-',
-                'Waktu' => '-',
-                'Voltage (V)' => '-',
-                'Current (A)' => '-',
-                'Power (W)' => '-',
-                'Energy (kWh)' => '-',
-                'Tarif per kWh' => '-',
-                'Estimasi Pembayaran' => '-',
+        $validated = $request->validate([
+            'esp_unit_id' => [
+                'nullable',
+                'string',
+                'max:100',
+                'required_without:esp32_device_id',
             ],
+            'esp32_device_id' => [
+                'nullable',
+                'string',
+                'max:100',
+                'required_without:esp_unit_id',
+            ],
+            'meter_code' => ['nullable', 'string', 'max:50'],
+            'telemetry_id' => ['nullable', 'string', 'max:100'],
+            'observed_at' => ['nullable', 'date'],
+
+            'voltage' => ['required', 'numeric'],
+            'current' => ['required', 'numeric'],
+            'power' => ['required', 'numeric'],
+            'energy' => ['required', 'numeric'],
+            'frequency' => ['nullable', 'numeric'],
+            'power_factor' => ['nullable', 'numeric'],
         ]);
 
-        $logRows = $exportLogs->map(function ($log) use ($electricityTariff) {
-            $energyKwh = $this->getLogEnergyKwh($log);
-            $estimatedCost = $energyKwh * $electricityTariff;
+        $espUnitId = trim((string) (
+            $validated['esp_unit_id']
+            ?? $validated['esp32_device_id']
+        ));
+
+        $meterCode = trim((string) ($validated['meter_code'] ?? 'main'));
+
+        if ($meterCode === '') {
+            $meterCode = 'main';
+        }
+
+        $meter = EnergyMeter::query()
+            ->where('esp_unit_id', $espUnitId)
+            ->where('meter_code', $meterCode)
+            ->where('is_active', true)
+            ->first();
+
+        if (! $meter) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Energy meter tidak ditemukan atau tidak aktif.',
+                'esp_unit_id' => $espUnitId,
+                'meter_code' => $meterCode,
+            ], 404);
+        }
+
+        $telemetryId = filled($validated['telemetry_id'] ?? null)
+            ? (string) $validated['telemetry_id']
+            : null;
+
+        $observedAt = isset($validated['observed_at'])
+            ? CarbonImmutable::parse($validated['observed_at'])->utc()
+            : CarbonImmutable::now('UTC');
+
+        $energyData = [
+            'voltage' => (float) $validated['voltage'],
+            'current' => (float) $validated['current'],
+            'power' => (float) $validated['power'],
+            'energy' => (float) $validated['energy'],
+            'frequency' => isset($validated['frequency'])
+                ? (float) $validated['frequency']
+                : null,
+            'power_factor' => isset($validated['power_factor'])
+                ? (float) $validated['power_factor']
+                : null,
+        ];
+
+        $result = DB::transaction(function () use (
+            $meter,
+            $energyData,
+            $observedAt,
+            $telemetryId
+        ) {
+            return $this->storeEnergyLog(
+                meter: $meter,
+                energyData: $energyData,
+                observedAt: $observedAt,
+                telemetryId: $telemetryId,
+            );
+        }, 3);
+
+        return response()->json([
+            'success' => true,
+            'message' => $result['created']
+                ? 'Data PZEM berhasil dicatat ke riwayat telemetry.'
+                : 'Telemetry duplikat diterima; riwayat tidak dibuat ulang.',
+
+            'esp_unit_id' => $meter->esp_unit_id,
+            'meter_code' => $meter->meter_code,
+            'energy_meter_id' => $meter->id,
+            'telemetry_id' => $telemetryId,
+            'observed_at' => $observedAt->toIso8601String(),
+
+            'created_logs' => $result['created'] ? 1 : 0,
+            'duplicate_logs' => $result['created'] ? 0 : 1,
+            'data' => $result['log'],
+        ], $result['created'] ? 201 : 200);
+    }
+
+    public function command(Request $request, string $esp32_device_id)
+    {
+        $this->checkApiKey($request);
+
+        $device = $this->applyRelayOrder(
+            $this->deviceQueryForEsp($esp32_device_id)
+        )->first();
+
+        if (! $device) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Device tidak ditemukan.',
+            ], 404);
+        }
+
+        $systemSetting = $this->resolveSystemSetting($device);
+        $isOn = $this->isDeviceOn($device->status);
+
+        return response()->json([
+            'success' => true,
+            'esp_unit_id' => $device->esp_unit_id ?? $device->esp32_device_id,
+            'esp32_device_id' => $device->esp32_device_id,
+            'device_id' => $device->id,
+            'device_name' => $device->name,
+            'relay_code' => (string) ($device->relay_code ?? '1'),
+            'relay' => $isOn,
+            'status' => $isOn ? 'ON' : 'OFF',
+            'refresh_interval' => $systemSetting?->refresh_interval ?? 5,
+        ]);
+    }
+
+    public function commands(Request $request, string $esp32_device_id)
+    {
+        $this->checkApiKey($request);
+
+        $devices = $this->applyRelayOrder(
+            $this->deviceQueryForEsp($esp32_device_id)
+        )->get();
+
+        if ($devices->isEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tidak ada device untuk ESP32 ini.',
+                'esp_unit_id' => $esp32_device_id,
+                'esp32_device_id' => $esp32_device_id,
+                'refresh_interval' => 5,
+                'relays' => [],
+            ], 404);
+        }
+
+        $firstDevice = $devices->first();
+        $systemSetting = $this->resolveSystemSetting($firstDevice);
+
+        $relays = $devices->map(function (Device $device) {
+            $isOn = $this->isDeviceOn($device->status);
 
             return [
-                'Room' => $log->device?->room?->name ?? '-',
-                'Device' => $log->device?->name ?? '-',
-                'Waktu' => optional($log->created_at)->format('d/m/Y H:i:s'),
-                'Voltage (V)' => number_format($log->voltage ?? 0, 2, ',', '.'),
-                'Current (A)' => number_format($log->current ?? 0, 2, ',', '.'),
-                'Power (W)' => number_format($log->power ?? 0, 2, ',', '.'),
-                'Energy (kWh)' => number_format($energyKwh, 4, ',', '.'),
-                'Tarif per kWh' => 'Rp ' . number_format($electricityTariff, 0, ',', '.'),
-                'Estimasi Pembayaran' => 'Rp ' . number_format($estimatedCost, 0, ',', '.'),
+                'device_id' => $device->id,
+                'device_name' => $device->name,
+                'room_id' => $device->room_id,
+                'room_name' => $device->room?->name,
+                'relay_code' => (string) (
+                    $device->relay_code
+                    ?? $device->id
+                ),
+                'relay' => $isOn,
+                'status' => $isOn ? 'ON' : 'OFF',
             ];
-        });
+        })->values();
 
-        return response()->json(
-            $summaryRows
-                ->concat($separatorRow)
-                ->concat($logRows)
-                ->values()
-        );
+        return response()->json([
+            'success' => true,
+            'esp_unit_id' => $firstDevice->esp_unit_id
+                ?? $firstDevice->esp32_device_id,
+            'esp32_device_id' => $firstDevice->esp32_device_id,
+            'refresh_interval' => $systemSetting?->refresh_interval ?? 5,
+            'total_relays' => $relays->count(),
+            'relays' => $relays,
+        ]);
     }
 
-    private function energyLogQuery(array $filters)
-    {
-        $query = EnergyLog::with('device.room')
-            ->whereHas('device.room', function ($roomQuery) {
-                $roomQuery->where('user_id', Auth::id());
-            });
-
-        if (!empty($filters['device_id'])) {
-            $query->where('device_id', $filters['device_id']);
-        }
-
-        if (!empty($filters['date_from'])) {
-            $query->whereDate('created_at', '>=', $filters['date_from']);
-        }
-
-        if (!empty($filters['date_to'])) {
-            $query->whereDate('created_at', '<=', $filters['date_to']);
-        }
-
-        return $query;
-    }
-
-    private function getElectricityTariff(): float
-    {
-        $systemSetting = SystemSetting::where('user_id', Auth::id())->first();
-
-        return (float) ($systemSetting?->electricity_tariff ?? 1444);
-    }
-
-    private function getExportDeviceIds(array $filters)
-    {
-        $devicesQuery = Device::whereHas('room', function ($roomQuery) {
-            $roomQuery->where('user_id', Auth::id());
-        });
-
-        if (!empty($filters['device_id'])) {
-            $devicesQuery->where('id', $filters['device_id']);
-        }
-
-        return $devicesQuery->pluck('id');
-    }
-
-    private function buildPaymentEstimations($deviceIds, float $tariff): array
-    {
-        $now = Carbon::now();
-
-        return [
-            'today' => $this->buildPaymentEstimation(
-                label: 'Hari Ini',
-                startDate: Carbon::today(),
-                endDate: $now->copy(),
-                deviceIds: $deviceIds,
-                tariff: $tariff
-            ),
-            'week' => $this->buildPaymentEstimation(
-                label: 'Minggu Ini',
-                startDate: $now->copy()->startOfWeek(),
-                endDate: $now->copy(),
-                deviceIds: $deviceIds,
-                tariff: $tariff
-            ),
-            'month' => $this->buildPaymentEstimation(
-                label: 'Bulan Ini',
-                startDate: $now->copy()->startOfMonth(),
-                endDate: $now->copy(),
-                deviceIds: $deviceIds,
-                tariff: $tariff
-            ),
-        ];
-    }
-
-    private function buildPaymentEstimation(
-        string $label,
-        Carbon $startDate,
-        Carbon $endDate,
-        $deviceIds,
-        float $tariff
+    private function storeEnergyLog(
+        EnergyMeter $meter,
+        array $energyData,
+        CarbonImmutable $observedAt,
+        ?string $telemetryId,
     ): array {
-        $usageKwh = $this->calculateEnergyUsage($deviceIds, $startDate, $endDate);
-        $estimatedCost = $usageKwh * $tariff;
+        if ($telemetryId !== null) {
+            $existing = EnergyLog::query()
+                ->where('energy_meter_id', $meter->id)
+                ->where('telemetry_id', $telemetryId)
+                ->first();
 
-        return [
-            'label' => $label,
-            'period' => $startDate->format('d/m/Y') . ' - ' . $endDate->format('d/m/Y'),
-            'usage_kwh' => round($usageKwh, 4),
-            'tariff' => round($tariff, 2),
-            'estimated_cost' => round($estimatedCost),
-            'formula' => round($usageKwh, 4) . ' kWh x Rp ' . number_format($tariff, 0, ',', '.'),
-        ];
-    }
-
-    private function calculateEnergyUsage($deviceIds, Carbon $startDate, Carbon $endDate): float
-    {
-        if ($deviceIds->isEmpty()) {
-            return 0;
+            if ($existing) {
+                return [
+                    'log' => $existing,
+                    'created' => false,
+                ];
+            }
         }
 
-        return (float) EnergyLog::whereIn('device_id', $deviceIds)
-            ->whereBetween('created_at', [$startDate, $endDate])
-            ->sum('energy');
+        $attributes = array_merge([
+            'device_id' => null,
+            'energy_meter_id' => $meter->id,
+            'telemetry_id' => $telemetryId,
+            'observed_at' => $observedAt,
+        ], $energyData);
+
+        try {
+            return [
+                'log' => EnergyLog::create($attributes),
+                'created' => true,
+            ];
+        } catch (QueryException $exception) {
+            if ($telemetryId !== null) {
+                $existing = EnergyLog::query()
+                    ->where('energy_meter_id', $meter->id)
+                    ->where('telemetry_id', $telemetryId)
+                    ->first();
+
+                if ($existing) {
+                    return [
+                        'log' => $existing,
+                        'created' => false,
+                    ];
+                }
+            }
+
+            throw $exception;
+        }
     }
 
-    private function getLogEnergyKwh(EnergyLog $log): float
+    private function deviceQueryForEsp(string $espIdentifier)
     {
-        return (float) ($log->energy_kwh ?? $log->energy ?? 0);
+        return Device::query()
+            ->with('room')
+            ->where(function ($query) use ($espIdentifier) {
+                if (Schema::hasColumn('devices', 'esp_unit_id')) {
+                    $query->where('esp_unit_id', $espIdentifier);
+                }
+
+                if (Schema::hasColumn('devices', 'esp32_device_id')) {
+                    $query->orWhere('esp32_device_id', $espIdentifier);
+                }
+            });
+    }
+
+    private function applyRelayOrder($query)
+    {
+        if (Schema::hasColumn('devices', 'relay_code')) {
+            return $query->orderBy('relay_code');
+        }
+
+        return $query->orderBy('id');
+    }
+
+    private function isDeviceOn($status): bool
+    {
+        if (is_bool($status)) {
+            return $status;
+        }
+
+        if (is_numeric($status)) {
+            return (int) $status === 1;
+        }
+
+        return in_array(strtolower((string) $status), [
+            'on',
+            'nyala',
+            'active',
+            'aktif',
+            'true',
+            '1',
+        ], true);
+    }
+
+    private function resolveSystemSetting(Device $device): ?SystemSetting
+    {
+        if (Schema::hasColumn('system_settings', 'device_id')) {
+            $systemSetting = SystemSetting::where(
+                'device_id',
+                $device->id
+            )->first();
+
+            if ($systemSetting) {
+                return $systemSetting;
+            }
+        }
+
+        if (! empty($device->room_id)) {
+            $roomUserId = Room::where(
+                'id',
+                $device->room_id
+            )->value('user_id');
+
+            if ($roomUserId) {
+                return SystemSetting::where(
+                    'user_id',
+                    $roomUserId
+                )->first();
+            }
+        }
+
+        return null;
     }
 }

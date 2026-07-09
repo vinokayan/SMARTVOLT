@@ -13,7 +13,6 @@ class Device extends Model
         'user_id',
         'room_id',
         'name',
-        'type',
         'device_key',
         'relay_code',
         'esp32_device_id',

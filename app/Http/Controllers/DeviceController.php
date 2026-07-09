@@ -15,6 +15,13 @@ use PhpMqtt\Client\Facades\MQTT;
 
 class DeviceController extends Controller
 {
+    private function ensureAdvancedMode(): void
+    {
+        if (! session('advanced_mode')) {
+            abort(403, 'Mode Lanjutan belum aktif.');
+        }
+    }
+
     private function ensureRoomOwner(Room $room): void
     {
         if ((int) $room->user_id !== (int) Auth::id()) {
@@ -43,11 +50,14 @@ class DeviceController extends Controller
 
     public function store(Request $request, ?Room $room = null)
     {
+        $this->ensureAdvancedMode();
+
         if (! $room) {
             $request->validate([
                 'room_id' => [
                     'required',
-                    Rule::exists('rooms', 'id')->where(fn ($query) => $query->where('user_id', Auth::id())),
+                    Rule::exists('rooms', 'id')
+                        ->where(fn ($query) => $query->where('user_id', Auth::id())),
                 ],
             ], [
                 'room_id.required' => 'Ruangan wajib dipilih.',
@@ -61,6 +71,11 @@ class DeviceController extends Controller
 
         $this->ensureRoomOwner($room);
 
+        /*
+         * Kompatibilitas:
+         * Jika form lama masih mengirim esp32_device_id sebagai relay_code,
+         * sistem tetap bisa membaca nilainya sebagai relay_code.
+         */
         $request->merge([
             'relay_code' => $request->input('relay_code') ?? $request->input('esp32_device_id'),
         ]);
@@ -70,20 +85,23 @@ class DeviceController extends Controller
                 'required',
                 'string',
                 'max:100',
-                Rule::unique('devices', 'name')->where(fn ($query) => $query->where('room_id', $room->id)),
+                Rule::unique('devices', 'name')
+                    ->where(fn ($query) => $query->where('room_id', $room->id)),
             ],
             'device_key' => ['nullable', 'string', 'max:100'],
             'relay_code' => ['required', 'string', 'max:100'],
             'esp_unit_id' => ['required', 'string', 'max:100'],
-            'type' => ['nullable', 'string', 'max:100'],
         ], [
             'name.required' => 'Nama perangkat wajib diisi.',
             'name.unique' => 'Nama perangkat sudah ada di ruangan ini.',
-            'relay_code.required' => 'Kode relay wajib diisi.',
-            'esp_unit_id.required' => 'Kode ESP / sensor wajib diisi.',
+            'relay_code.required' => 'Relay channel wajib diisi.',
+            'esp_unit_id.required' => 'ESP Unit ID wajib diisi.',
         ]);
 
-        $this->validateRelayCodeIsUnique($validated['relay_code'], $validated['esp_unit_id']);
+        $this->validateRelayCodeIsUnique(
+            $validated['relay_code'],
+            $validated['esp_unit_id']
+        );
 
         $data = [
             'room_id' => $room->id,
@@ -93,10 +111,6 @@ class DeviceController extends Controller
 
         if (Schema::hasColumn('devices', 'user_id')) {
             $data['user_id'] = Auth::id();
-        }
-
-        if (Schema::hasColumn('devices', 'type')) {
-            $data['type'] = $validated['type'] ?? 'other';
         }
 
         if (Schema::hasColumn('devices', 'device_key')) {
@@ -111,18 +125,27 @@ class DeviceController extends Controller
             $data['esp_unit_id'] = $validated['esp_unit_id'];
         }
 
-        // Legacy: dipakai untuk kompatibilitas kode lama/API lama.
+        /*
+         * Legacy:
+         * Kolom esp32_device_id tetap diisi ESP Unit ID agar API lama
+         * yang masih memakai esp32_device_id tidak langsung rusak.
+         */
         if (Schema::hasColumn('devices', 'esp32_device_id')) {
             $data['esp32_device_id'] = $validated['esp_unit_id'];
         }
 
         $device = Device::create($data);
 
-        return $this->redirectAfterAction($request, 'Perangkat berhasil ditambahkan.', $device->room_id);
+        return $this->redirectAfterAction(
+            $request,
+            'Relay berhasil ditambahkan.',
+            $device->room_id
+        );
     }
 
     public function update(Request $request, Device $device)
     {
+        $this->ensureAdvancedMode();
         $this->ensureDeviceOwner($device);
 
         $request->merge([
@@ -141,23 +164,22 @@ class DeviceController extends Controller
             'device_key' => ['nullable', 'string', 'max:100'],
             'relay_code' => ['required', 'string', 'max:100'],
             'esp_unit_id' => ['required', 'string', 'max:100'],
-            'type' => ['nullable', 'string', 'max:100'],
         ], [
             'name.required' => 'Nama perangkat wajib diisi.',
             'name.unique' => 'Nama perangkat sudah ada di ruangan ini.',
-            'relay_code.required' => 'Kode relay wajib diisi.',
-            'esp_unit_id.required' => 'Kode ESP / sensor wajib diisi.',
+            'relay_code.required' => 'Relay channel wajib diisi.',
+            'esp_unit_id.required' => 'ESP Unit ID wajib diisi.',
         ]);
 
-        $this->validateRelayCodeIsUnique($validated['relay_code'], $validated['esp_unit_id'], $device->id);
+        $this->validateRelayCodeIsUnique(
+            $validated['relay_code'],
+            $validated['esp_unit_id'],
+            $device->id
+        );
 
         $data = [
             'name' => $validated['name'],
         ];
-
-        if (Schema::hasColumn('devices', 'type')) {
-            $data['type'] = $validated['type'] ?? $device->type ?? 'other';
-        }
 
         if (Schema::hasColumn('devices', 'device_key')) {
             $data['device_key'] = $validated['device_key'] ?? null;
@@ -177,17 +199,26 @@ class DeviceController extends Controller
 
         $device->update($data);
 
-        return $this->redirectAfterAction($request, 'Perangkat berhasil diperbarui.', $device->room_id);
+        return $this->redirectAfterAction(
+            $request,
+            'Relay berhasil diperbarui.',
+            $device->room_id
+        );
     }
 
     public function destroy(Request $request, Device $device)
     {
+        $this->ensureAdvancedMode();
         $this->ensureDeviceOwner($device);
 
         $roomId = $device->room_id;
         $device->delete();
 
-        return $this->redirectAfterAction($request, 'Perangkat berhasil dihapus.', $roomId);
+        return $this->redirectAfterAction(
+            $request,
+            'Relay berhasil dihapus.',
+            $roomId
+        );
     }
 
     public function toggle(Request $request, Device $device)
@@ -203,7 +234,7 @@ class DeviceController extends Controller
             if (! $relayCode) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Perangkat belum memiliki kode relay.',
+                    'message' => 'Relay belum memiliki relay channel.',
                 ], 422);
             }
 
@@ -212,30 +243,16 @@ class DeviceController extends Controller
             if (! $espUid) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Perangkat belum memiliki kode ESP / sensor.',
+                    'message' => 'Relay belum memiliki ESP Unit ID.',
                 ], 422);
             }
 
             /*
-            |--------------------------------------------------------------------------
-            | SMARTVOLT MQTT TOPIC
-            |--------------------------------------------------------------------------
-            | ESP32 hybrid pro mendengarkan topic:
-            | smartvolt/unit/{ESP32_DEVICE_ID}/command
-            |
-            | Contoh untuk alat kamu:
-            | smartvolt/unit/2/command
-            */
+             * Topic ini masih mengikuti firmware Anda saat ini:
+             * smartvolt/unit/{ESP_UNIT_ID}/command
+             */
             $topic = 'smartvolt/unit/' . $espUid . '/command';
 
-            /*
-            |--------------------------------------------------------------------------
-            | PAYLOAD UNTUK ESP32
-            |--------------------------------------------------------------------------
-            | ESP32 membaca format:
-            | relay_code = "1" atau "2"
-            | state      = true atau false
-            */
             $payloadArray = [
                 'relay_code' => $relayCode,
                 'state' => (bool) $newStatus,
@@ -243,6 +260,7 @@ class DeviceController extends Controller
                 'device_id' => $device->id,
                 'device_name' => $device->name,
                 'esp32_device_id' => $espUid,
+                'esp_unit_id' => $espUid,
                 'command_id' => (string) Str::uuid(),
             ];
 
@@ -250,6 +268,12 @@ class DeviceController extends Controller
 
             MQTT::publish($topic, $payload, 0);
 
+            /*
+             * Catatan:
+             * Ini masih update langsung setelah publish MQTT.
+             * Nanti untuk versi lebih profesional, bagian ini diganti
+             * dengan acknowledgement dari ESP32.
+             */
             $device->update([
                 'status' => $newStatus,
             ]);
@@ -267,26 +291,32 @@ class DeviceController extends Controller
                 'mqtt_payload' => $payloadArray,
             ]);
         } catch (\Throwable $e) {
-            Log::error('Gagal toggle perangkat', [
+            Log::error('Gagal toggle relay', [
                 'device_id' => $device->id ?? null,
                 'error' => $e->getMessage(),
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal mengirim perintah ke perangkat. Pastikan broker MQTT berjalan dan konfigurasi MQTT benar.',
+                'message' => 'Gagal mengirim perintah ke relay. Pastikan broker MQTT berjalan dan konfigurasi MQTT benar.',
                 'error' => $e->getMessage(),
             ], 500);
         }
     }
 
-    private function validateRelayCodeIsUnique(string $relayCode, string $espUnitId, ?int $ignoreDeviceId = null): void
-    {
+    private function validateRelayCodeIsUnique(
+        string $relayCode,
+        string $espUnitId,
+        ?int $ignoreDeviceId = null
+    ): void {
         if (! Schema::hasColumn('devices', 'relay_code')) {
             return;
         }
 
-        $query = Device::whereHas('room', fn ($query) => $query->where('user_id', Auth::id()))
+        $query = Device::whereHas(
+            'room',
+            fn ($query) => $query->where('user_id', Auth::id())
+        )
             ->where('relay_code', $relayCode);
 
         if (Schema::hasColumn('devices', 'esp_unit_id')) {
@@ -299,7 +329,7 @@ class DeviceController extends Controller
 
         if ($query->exists()) {
             throw ValidationException::withMessages([
-                'relay_code' => 'Kode relay sudah digunakan pada ESP / sensor ini.',
+                'relay_code' => 'Relay channel sudah digunakan pada ESP Unit ID ini.',
             ]);
         }
     }
@@ -324,8 +354,11 @@ class DeviceController extends Controller
         ], true);
     }
 
-    private function redirectAfterAction(Request $request, string $message, ?int $roomId = null)
-    {
+    private function redirectAfterAction(
+        Request $request,
+        string $message,
+        ?int $roomId = null
+    ) {
         if ($request->input('return_to') === 'settings') {
             return redirect()
                 ->route('settings')

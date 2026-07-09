@@ -304,22 +304,28 @@
                                     @if($room->devices->count() > 0)
                                         <div class="sv-dashboard-device-list">
                                             @foreach($room->devices as $device)
-                                                @php
-                                                    $isOn = (bool) $device->status;
-                                                    $type = strtolower($device->type ?? 'other');
-                                                    $deviceIcon = match ($type) {
-                                                        'light', 'lampu' => 'bi-lightbulb-fill',
-                                                        'fan', 'kipas' => 'bi-fan',
-                                                        'outlet', 'stop kontak' => 'bi-plug-fill',
-                                                        default => 'bi-cpu-fill',
-                                                    };
-                                                    $deviceTypeLabel = match ($type) {
-                                                        'light', 'lampu' => 'Lampu',
-                                                        'fan', 'kipas' => 'Kipas',
-                                                        'outlet', 'stop kontak' => 'Stop Kontak',
-                                                        default => 'Perangkat',
-                                                    };
-                                                @endphp
+                                               @php
+    $isOn = (bool) $device->status;
+    $deviceName = strtolower($device->name ?? '');
+
+    $deviceIcon = match (true) {
+        str_contains($deviceName, 'lampu') => 'bi-lightbulb-fill',
+        str_contains($deviceName, 'kipas') => 'bi-fan',
+        str_contains($deviceName, 'fan') => 'bi-fan',
+        str_contains($deviceName, 'stop kontak') => 'bi-plug-fill',
+        str_contains($deviceName, 'colokan') => 'bi-plug-fill',
+        default => 'bi-toggle-on',
+    };
+
+    $deviceTypeLabel = match (true) {
+        str_contains($deviceName, 'lampu') => 'Lampu',
+        str_contains($deviceName, 'kipas') => 'Kipas',
+        str_contains($deviceName, 'fan') => 'Kipas',
+        str_contains($deviceName, 'stop kontak') => 'Stop Kontak',
+        str_contains($deviceName, 'colokan') => 'Stop Kontak',
+        default => 'Perangkat Relay',
+    };
+@endphp
                                                 <div class="sv-dashboard-device">
                                                     <div class="sv-dashboard-device-left">
                                                         <div class="sv-dashboard-device-icon">

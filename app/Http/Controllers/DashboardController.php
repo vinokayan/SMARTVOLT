@@ -2,13 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Room;
 use App\Models\Device;
+use App\Models\EnergyLog;
+use App\Models\EnergyMeter;
+use App\Models\Room;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
-use Carbon\Carbon;
 
 class DashboardController extends Controller
 {
@@ -78,8 +78,8 @@ class DashboardController extends Controller
     private function getUserRooms()
     {
         return Room::with(['devices' => function ($query) {
-                $query->orderBy('name');
-            }])
+            $query->orderBy('name');
+        }])
             ->where('user_id', Auth::id())
             ->orderBy('name')
             ->get();
@@ -94,98 +94,41 @@ class DashboardController extends Controller
             ->flatten()
             ->values();
 
-        $deviceIds = $devices
-            ->pluck('id')
-            ->filter()
-            ->values();
+        $meters = EnergyMeter::query()
+            ->where('user_id', Auth::id())
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->get();
 
-        $totalEnergyToday = 0;
-        $currentPower = 0;
-        $chartLabels = [];
-        $chartPower = [];
-        $chartEnergy = [];
+        $meterIds = $meters->pluck('id');
 
-        if (Schema::hasTable('energy_logs')) {
-            $energyColumn = $this->firstExistingColumn('energy_logs', [
-                'energy_kwh',
-                'kwh',
-                'energy',
-                'total_kwh',
-            ]);
+        $now = Carbon::now();
+        $todayStart = $now->copy()->startOfDay();
 
-            $powerColumn = $this->firstExistingColumn('energy_logs', [
-                'power_watt',
-                'current_power',
-                'power',
-                'watt',
-            ]);
-
-            $dateColumn = $this->firstExistingColumn('energy_logs', [
-                'logged_at',
-                'created_at',
-            ]);
-
-            $deviceColumn = Schema::hasColumn('energy_logs', 'device_id')
-                ? 'device_id'
-                : null;
-
-            $logsQuery = DB::table('energy_logs');
-
-            if ($deviceColumn && $deviceIds->isNotEmpty()) {
-                $logsQuery->whereIn($deviceColumn, $deviceIds);
-            }
-
-            if ($dateColumn) {
-                $logsQuery->whereDate($dateColumn, now()->toDateString());
-            }
-
-            $todayLogs = $logsQuery
-                ->orderBy($dateColumn ?? 'id')
+        $todayLogs = $meterIds->isEmpty()
+            ? collect()
+            : EnergyLog::query()
+                ->whereIn('energy_meter_id', $meterIds)
+                ->whereBetween('observed_at', [$todayStart, $now])
+                ->orderBy('observed_at')
                 ->get();
 
-            if ($todayLogs->isNotEmpty()) {
-                if ($deviceColumn) {
-                    $latestLogsPerDevice = $todayLogs
-                        ->groupBy($deviceColumn)
-                        ->map(function ($logs) {
-                            return $logs->last();
-                        })
-                        ->values();
-                } else {
-                    $latestLogsPerDevice = collect([$todayLogs->last()]);
-                }
+        $latestLogsPerMeter = $todayLogs
+            ->groupBy('energy_meter_id')
+            ->map(fn ($logs) => $logs->last())
+            ->values();
 
-                if ($powerColumn) {
-                    $currentPower = (float) $latestLogsPerDevice->sum(function ($log) use ($powerColumn) {
-                        return (float) ($log->{$powerColumn} ?? 0);
-                    });
-                }
+        $currentPower = (float) $latestLogsPerMeter->sum(
+            fn (EnergyLog $log) => (float) ($log->power ?? 0)
+        );
 
-                if ($energyColumn) {
-                    $totalEnergyToday = (float) $latestLogsPerDevice->sum(function ($log) use ($energyColumn) {
-                        return (float) ($log->{$energyColumn} ?? 0);
-                    });
-                }
+        $totalEnergyToday = $this->calculateEnergyUsage(
+            $meterIds,
+            $todayStart,
+            $now
+        );
 
-                $chartLogs = $todayLogs->take(-12)->values();
-
-                foreach ($chartLogs as $log) {
-                    if ($dateColumn && isset($log->{$dateColumn})) {
-                        $chartLabels[] = Carbon::parse($log->{$dateColumn})->format('H:i');
-                    } else {
-                        $chartLabels[] = '#' . ($log->id ?? count($chartLabels) + 1);
-                    }
-
-                    $chartPower[] = $powerColumn
-                        ? round((float) ($log->{$powerColumn} ?? 0), 2)
-                        : 0;
-
-                    $chartEnergy[] = $energyColumn
-                        ? round((float) ($log->{$energyColumn} ?? 0), 4)
-                        : 0;
-                }
-            }
-        }
+        $chart = $this->buildPowerChart($todayLogs);
 
         return [
             'stats' => [
@@ -198,63 +141,28 @@ class DashboardController extends Controller
                 })->count(),
             ],
 
-            'chart' => [
-                'labels' => $chartLabels,
-                'power' => $chartPower,
-                'energy' => $chartEnergy,
-            ],
+            'chart' => $chart,
 
             'rooms' => $rooms->map(function ($room) {
                 return [
                     'id' => $room->id,
                     'name' => $room->name,
                     'total_devices' => $room->devices->count(),
-                    'active_devices' => $room->devices->filter(function ($device) {
-                        return $this->isDeviceOn($device->status ?? null);
-                    })->count(),
-
-                    'devices' => $room->devices->map(function ($device) {
-                        $status = $this->isDeviceOn($device->status ?? null);
-
-                        return [
-                            'id' => $device->id,
-                            'room_id' => $device->room_id,
-                            'name' => $device->name,
-
-                            'type' => $device->type ?? null,
-
-                            'device_key' => $device->device_key ?? null,
-                            'relay_code' => $device->relay_code ?? null,
-                            'esp32_device_id' => $device->esp32_device_id ?? null,
-                            'esp_unit_id' => $device->esp_unit_id ?? null,
-
-                            'status' => $status,
-                            'status_text' => $status ? 'on' : 'off',
-                            'status_label' => $status ? 'Nyala' : 'Mati',
-                        ];
-                    })->values(),
+                    'active_devices' => $room->devices
+                        ->filter(function ($device) {
+                            return $this->isDeviceOn($device->status ?? null);
+                        })
+                        ->count(),
+                    'devices' => $room->devices
+                        ->map(function ($device) {
+                            return $this->devicePayload($device);
+                        })
+                        ->values(),
                 ];
             })->values(),
 
             'devices' => $devices->map(function ($device) {
-                $status = $this->isDeviceOn($device->status ?? null);
-
-                return [
-                    'id' => $device->id,
-                    'room_id' => $device->room_id,
-                    'name' => $device->name,
-
-                    'type' => $device->type ?? null,
-
-                    'device_key' => $device->device_key ?? null,
-                    'relay_code' => $device->relay_code ?? null,
-                    'esp32_device_id' => $device->esp32_device_id ?? null,
-                    'esp_unit_id' => $device->esp_unit_id ?? null,
-
-                    'status' => $status,
-                    'status_text' => $status ? 'on' : 'off',
-                    'status_label' => $status ? 'Nyala' : 'Mati',
-                ];
+                return $this->devicePayload($device);
             })->values(),
 
             'user' => [
@@ -264,15 +172,108 @@ class DashboardController extends Controller
         ];
     }
 
-    private function firstExistingColumn(string $table, array $columns): ?string
+    private function buildPowerChart($todayLogs): array
     {
-        foreach ($columns as $column) {
-            if (Schema::hasColumn($table, $column)) {
-                return $column;
+        $buckets = $todayLogs
+            ->groupBy(function (EnergyLog $log) {
+                return $log->observed_at
+                    ?->timezone('Asia/Jakarta')
+                    ->format('H:i') ?? '-';
+            })
+            ->map(function ($logs, $label) {
+                $latestPerMeter = $logs
+                    ->groupBy('energy_meter_id')
+                    ->map(fn ($meterLogs) => $meterLogs->last())
+                    ->values();
+
+                return [
+                    'label' => $label,
+                    'power' => round(
+                        (float) $latestPerMeter->sum('power'),
+                        2
+                    ),
+                    'energy' => round(
+                        (float) $latestPerMeter->sum('energy'),
+                        4
+                    ),
+                ];
+            })
+            ->take(-12)
+            ->values();
+
+        return [
+            'labels' => $buckets->pluck('label')->values(),
+            'power' => $buckets->pluck('power')->values(),
+            'energy' => $buckets->pluck('energy')->values(),
+        ];
+    }
+
+    private function calculateEnergyUsage(
+        $meterIds,
+        Carbon $startDate,
+        Carbon $endDate
+    ): float {
+        if ($meterIds->isEmpty()) {
+            return 0;
+        }
+
+        $totalUsage = 0.0;
+
+        foreach ($meterIds as $meterId) {
+            $previousLog = EnergyLog::query()
+                ->where('energy_meter_id', $meterId)
+                ->where('observed_at', '<', $startDate)
+                ->whereNotNull('energy')
+                ->orderByDesc('observed_at')
+                ->first();
+
+            $logs = EnergyLog::query()
+                ->where('energy_meter_id', $meterId)
+                ->whereBetween('observed_at', [$startDate, $endDate])
+                ->whereNotNull('energy')
+                ->orderBy('observed_at')
+                ->get(['energy', 'observed_at']);
+
+            $previousEnergy = $previousLog
+                ? (float) $previousLog->energy
+                : null;
+
+            foreach ($logs as $log) {
+                $currentEnergy = (float) $log->energy;
+
+                if ($previousEnergy === null) {
+                    $previousEnergy = $currentEnergy;
+                    continue;
+                }
+
+                $totalUsage += $currentEnergy >= $previousEnergy
+                    ? $currentEnergy - $previousEnergy
+                    : max(0, $currentEnergy);
+
+                $previousEnergy = $currentEnergy;
             }
         }
 
-        return null;
+        return round($totalUsage, 4);
+    }
+
+    private function devicePayload($device): array
+    {
+        $status = $this->isDeviceOn($device->status ?? null);
+
+        return [
+            'id' => $device->id,
+            'room_id' => $device->room_id,
+            'name' => $device->name,
+            'type' => 'relay',
+            'device_key' => $device->device_key ?? null,
+            'relay_code' => $device->relay_code ?? null,
+            'esp32_device_id' => $device->esp32_device_id ?? null,
+            'esp_unit_id' => $device->esp_unit_id ?? null,
+            'status' => $status,
+            'status_text' => $status ? 'on' : 'off',
+            'status_label' => $status ? 'Nyala' : 'Mati',
+        ];
     }
 
     private function isDeviceOn($status): bool
@@ -285,9 +286,7 @@ class DashboardController extends Controller
             return (int) $status === 1;
         }
 
-        $status = strtolower((string) $status);
-
-        return in_array($status, [
+        return in_array(strtolower((string) $status), [
             'on',
             'nyala',
             'active',

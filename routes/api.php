@@ -8,50 +8,58 @@ use Illuminate\Support\Facades\Route;
 | SMARTVOLT API Routes
 |--------------------------------------------------------------------------
 |
-| Semua route di file ini otomatis memakai prefix /api.
+| Semua route pada file ini otomatis memakai prefix /api.
 |
-| Endpoint utama:
+| Endpoint IoT utama:
 | POST /api/iot/telemetry
 | GET  /api/iot/esp/{esp_unit_id}/commands
-|
-| Endpoint legacy tetap dipertahankan:
-| POST /api/energy/store
-| GET  /api/device/{esp32_device_id}/command
-| GET  /api/unit/{esp32_device_id}/commands
+| POST /api/iot/esp/{esp_unit_id}/ack
 |
 */
 
-/*
-|--------------------------------------------------------------------------
-| New IoT API
-|--------------------------------------------------------------------------
-| Endpoint baru yang lebih jelas memakai esp_unit_id.
-|
-| ESP32 mengirim data sensor:
-| POST /api/iot/telemetry
-|
-| ESP32 mengambil semua status relay:
-| GET /api/iot/esp/ESP32-001/commands
-|
-*/
-Route::post('/iot/telemetry', [EnergyApiController::class, 'store'])
-    ->name('api.iot.telemetry');
+Route::middleware('throttle:120,1')->group(function () {
 
-Route::get('/iot/esp/{esp_unit_id}/commands', [EnergyApiController::class, 'commands'])
-    ->name('api.iot.esp.commands');
+    /*
+    |--------------------------------------------------------------------------
+    | IoT API Baru
+    |--------------------------------------------------------------------------
+    |
+    | Telemetry PZEM:
+    | POST /api/iot/telemetry
+    |
+    | ESP mengambil status relay:
+    | GET /api/iot/esp/2/commands
+    |
+    | ESP mengirim konfirmasi setelah relay fisik diterapkan:
+    | POST /api/iot/esp/2/ack
+    |
+    */
 
-/*
-|--------------------------------------------------------------------------
-| Legacy API
-|--------------------------------------------------------------------------
-| Endpoint lama tetap ada agar kode ESP32 versi lama masih berjalan.
-|
-*/
-Route::post('/energy/store', [EnergyApiController::class, 'store'])
-    ->name('api.energy.store');
+    Route::post('/iot/telemetry', [EnergyApiController::class, 'store'])
+        ->name('api.iot.telemetry');
 
-Route::get('/device/{esp32_device_id}/command', [EnergyApiController::class, 'command'])
-    ->name('api.device.command');
+    Route::get('/iot/esp/{esp_unit_id}/commands', [EnergyApiController::class, 'commands'])
+        ->name('api.iot.esp.commands');
 
-Route::get('/unit/{esp32_device_id}/commands', [EnergyApiController::class, 'commands'])
-    ->name('api.unit.commands');
+    Route::post('/iot/esp/{esp_unit_id}/ack', [EnergyApiController::class, 'acknowledge'])
+        ->name('api.iot.esp.ack');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Legacy API
+    |--------------------------------------------------------------------------
+    |
+    | Endpoint lama tetap dipertahankan agar firmware ESP versi lama
+    | tidak langsung berhenti bekerja.
+    |
+    */
+
+    Route::post('/energy/store', [EnergyApiController::class, 'store'])
+        ->name('api.energy.store');
+
+    Route::get('/device/{esp32_device_id}/command', [EnergyApiController::class, 'command'])
+        ->name('api.device.command');
+
+    Route::get('/unit/{esp32_device_id}/commands', [EnergyApiController::class, 'commands'])
+        ->name('api.unit.commands');
+});

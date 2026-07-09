@@ -5,18 +5,22 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class Room extends Model
+class EnergyMeter extends Model
 {
     use HasFactory;
 
     protected $fillable = [
         'user_id',
+        'room_id',
+        'esp_unit_id',
+        'meter_code',
         'name',
-        'status',
+        'sensor_type',
+        'is_active',
     ];
 
     protected $casts = [
-        'status' => 'boolean',
+        'is_active' => 'boolean',
     ];
 
     public function user()
@@ -24,13 +28,13 @@ class Room extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function devices()
+    public function room()
     {
-        return $this->hasMany(Device::class);
+        return $this->belongsTo(Room::class);
     }
 
-    public function energyMeters()
+    public function readings()
     {
-        return $this->hasMany(EnergyMeter::class);
+        return $this->hasMany(EnergyLog::class, 'energy_meter_id');
     }
 }

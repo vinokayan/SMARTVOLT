@@ -2,13 +2,22 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\EnergyMeter;
 use App\Models\Room;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 class RoomController extends Controller
 {
+    private function ensureAdvancedMode(): void
+    {
+        if (! session('advanced_mode')) {
+            abort(403, 'Mode Lanjutan belum aktif.');
+        }
+    }
+
     private function ensureRoomOwner(Room $room): void
     {
         if ((int) $room->user_id !== (int) Auth::id()) {
@@ -31,6 +40,8 @@ class RoomController extends Controller
 
     public function store(Request $request)
     {
+        $this->ensureAdvancedMode();
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:100'],
         ], [
@@ -40,7 +51,7 @@ class RoomController extends Controller
 
         $data = [
             'user_id' => Auth::id(),
-            'name' => $validated['name'],
+            'name' => trim($validated['name']),
         ];
 
         if (Schema::hasColumn('rooms', 'status')) {
@@ -58,6 +69,7 @@ class RoomController extends Controller
 
     public function update(Request $request, Room $room)
     {
+        $this->ensureAdvancedMode();
         $this->ensureRoomOwner($room);
 
         $validated = $request->validate([
@@ -68,7 +80,7 @@ class RoomController extends Controller
         ]);
 
         $room->update([
-            'name' => $validated['name'],
+            'name' => trim($validated['name']),
         ]);
 
         return $this->redirectAfterAction(
@@ -80,25 +92,50 @@ class RoomController extends Controller
 
     public function destroy(Request $request, Room $room)
     {
+        $this->ensureAdvancedMode();
         $this->ensureRoomOwner($room);
 
-        $room->devices()->delete();
-        $room->delete();
+        DB::transaction(function () use ($room) {
+            $meters = $room->energyMeters()
+                ->withCount('readings')
+                ->get();
+
+            /*
+             * Relay selalu dihapus bersama room. Meter yang sudah memiliki
+             * riwayat hanya dinonaktifkan agar energy_logs tidak rusak.
+             */
+            $room->devices()->delete();
+
+            foreach ($meters as $meter) {
+                if ($meter->readings_count > 0) {
+                    $meter->update([
+                        'room_id' => null,
+                        'is_active' => false,
+                    ]);
+                } else {
+                    $meter->delete();
+                }
+            }
+
+            $room->delete();
+        }, 3);
 
         return $this->redirectAfterAction(
             $request,
-            'Ruangan berhasil dihapus.'
+            'Ruangan berhasil dihapus. Meter dengan riwayat energi dinonaktifkan agar data lama tetap aman.'
         );
     }
 
-    private function redirectAfterAction(Request $request, string $message, ?int $selectedRoomId = null)
-    {
+    private function redirectAfterAction(
+        Request $request,
+        string $message,
+        ?int $selectedRoomId = null
+    ) {
         $returnTo = $request->input('return_to');
 
-        if ($returnTo === 'settings') {
+        if ($returnTo === 'technician' || $returnTo === 'settings') {
             $redirect = redirect()
                 ->route('settings')
-                ->with('success', $message)
                 ->with('status', $message)
                 ->with('open_advanced_panel', true);
 
@@ -112,13 +149,11 @@ class RoomController extends Controller
         if ($returnTo === 'rooms') {
             return redirect()
                 ->route('rooms')
-                ->with('success', $message)
                 ->with('status', $message);
         }
 
         return redirect()
             ->route('dashboard')
-            ->with('success', $message)
             ->with('status', $message);
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Device;
+use App\Models\EnergyMeter;
 use App\Models\Room;
 use App\Models\SystemSetting;
 use App\Models\User;
@@ -13,7 +14,7 @@ use Illuminate\Validation\Rule;
 
 class SettingsController extends Controller
 {
-    private function ensureAdvancedMode()
+    private function ensureAdvancedMode(): void
     {
         if (! session('advanced_mode')) {
             abort(403, 'Mode Lanjutan belum aktif.');
@@ -24,15 +25,39 @@ class SettingsController extends Controller
     {
         $user = User::findOrFail(Auth::id());
 
-        $rooms = Room::where('user_id', $user->id)
+        $rooms = Room::query()
+            ->withCount([
+                'devices',
+                'energyMeters',
+            ])
+            ->with([
+                'devices' => fn ($query) => $query
+                    ->orderBy('esp_unit_id')
+                    ->orderBy('relay_code')
+                    ->orderBy('name'),
+
+                'energyMeters' => fn ($query) => $query
+                    ->withCount('readings')
+                    ->orderBy('esp_unit_id')
+                    ->orderBy('meter_code'),
+            ])
+            ->where('user_id', $user->id)
             ->orderBy('name')
             ->get();
 
-        $devices = Device::with('room')
-            ->whereHas('room', function ($query) use ($user) {
-                $query->where('user_id', $user->id);
-            })
+        $devices = Device::query()
+            ->with('room')
+            ->whereHas('room', fn ($query) => $query->where('user_id', $user->id))
             ->orderBy('name')
+            ->get();
+
+        $energyMeters = EnergyMeter::query()
+            ->with('room')
+            ->withCount('readings')
+            ->where('user_id', $user->id)
+            ->orderBy('room_id')
+            ->orderBy('esp_unit_id')
+            ->orderBy('meter_code')
             ->get();
 
         $systemSetting = SystemSetting::firstOrCreate(
@@ -44,31 +69,12 @@ class SettingsController extends Controller
             ]
         );
 
-        $selectedDevice = null;
-
-        if ($systemSetting->device_id) {
-            $selectedDevice = $devices->firstWhere('id', $systemSetting->device_id);
-        }
-
-        if (! $selectedDevice) {
-            $selectedDevice = $devices->first();
-        }
-
-        $latestLog = null;
-
-        if ($selectedDevice && method_exists($selectedDevice, 'energyLogs')) {
-            $latestLog = $selectedDevice->energyLogs()
-                ->latest()
-                ->first();
-        }
-
         return view('settings.index', compact(
             'user',
             'rooms',
             'devices',
-            'systemSetting',
-            'selectedDevice',
-            'latestLog'
+            'energyMeters',
+            'systemSetting'
         ));
     }
 
@@ -93,10 +99,7 @@ class SettingsController extends Controller
             'email.unique' => 'Email sudah digunakan oleh akun lain.',
         ]);
 
-        $user->update([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
-        ]);
+        $user->update($validated);
 
         return back()->with('status', 'Akun berhasil diperbarui.');
     }
@@ -107,11 +110,11 @@ class SettingsController extends Controller
 
         $validated = $request->validate([
             'current_password' => ['required'],
-            'password' => ['required', 'string', 'min:6', 'confirmed'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
         ], [
             'current_password.required' => 'Password saat ini wajib diisi.',
             'password.required' => 'Password baru wajib diisi.',
-            'password.min' => 'Password baru minimal 6 karakter.',
+            'password.min' => 'Password baru minimal 8 karakter.',
             'password.confirmed' => 'Konfirmasi password tidak sesuai.',
         ]);
 
@@ -132,52 +135,11 @@ class SettingsController extends Controller
     {
         $this->ensureAdvancedMode();
 
-        $user = User::findOrFail(Auth::id());
-
-        $deviceId = $request->input('device_id');
-
-        $device = null;
-
-        if ($deviceId) {
-            $device = Device::where('id', $deviceId)
-                ->whereHas('room', function ($query) use ($user) {
-                    $query->where('user_id', $user->id);
-                })
-                ->first();
-        }
-
         $validated = $request->validate([
-            'device_id' => ['nullable', 'integer'],
-            'room_id' => [
-                'required',
-                Rule::exists('rooms', 'id')->where(function ($query) use ($user) {
-                    $query->where('user_id', $user->id);
-                }),
-            ],
-            'device_name' => ['required', 'string', 'max:100'],
-            'device_type' => ['nullable', 'string', 'max:100'],
-            'esp32_device_id' => [
-                'nullable',
-                'string',
-                'max:100',
-                Rule::unique('devices', 'esp32_device_id')->ignore($device?->id),
-            ],
-            'esp_unit_id' => [
-                'nullable',
-                'string',
-                'max:100',
-                Rule::unique('devices', 'esp_unit_id')->ignore($device?->id),
-            ],
             'electricity_tariff' => ['required', 'numeric', 'min:0'],
             'power_limit' => ['required', 'integer', 'min:1'],
             'refresh_interval' => ['required', 'integer', 'min:1', 'max:60'],
         ], [
-            'room_id.required' => 'Ruangan wajib dipilih.',
-            'room_id.exists' => 'Ruangan tidak valid.',
-            'device_name.required' => 'Nama perangkat wajib diisi.',
-            'device_name.max' => 'Nama perangkat maksimal 100 karakter.',
-            'esp32_device_id.unique' => 'Kode device / relay sudah digunakan.',
-            'esp_unit_id.unique' => 'Kode pengukur listrik sudah digunakan.',
             'electricity_tariff.required' => 'Tarif listrik wajib diisi.',
             'electricity_tariff.numeric' => 'Tarif listrik harus berupa angka.',
             'power_limit.required' => 'Batas daya wajib diisi.',
@@ -187,38 +149,13 @@ class SettingsController extends Controller
             'refresh_interval.max' => 'Interval refresh maksimal 60 detik.',
         ]);
 
-        if (! $device) {
-            $device = Device::create([
-                'room_id' => $validated['room_id'],
-                'name' => $validated['device_name'],
-                'type' => $validated['device_type'] ?? 'other',
-                'esp32_device_id' => $validated['esp32_device_id'] ?? null,
-                'esp_unit_id' => $validated['esp_unit_id'] ?? null,
-                'status' => false,
-            ]);
-        } else {
-            $device->update([
-                'room_id' => $validated['room_id'],
-                'name' => $validated['device_name'],
-                'type' => $validated['device_type'] ?? $device->type,
-                'esp32_device_id' => $validated['esp32_device_id'] ?? null,
-                'esp_unit_id' => $validated['esp_unit_id'] ?? null,
-            ]);
-        }
-
         SystemSetting::updateOrCreate(
-            ['user_id' => $user->id],
-            [
-                'device_id' => $device->id,
-                'electricity_tariff' => $validated['electricity_tariff'],
-                'power_limit' => $validated['power_limit'],
-                'refresh_interval' => $validated['refresh_interval'],
-            ]
+            ['user_id' => Auth::id()],
+            $validated
         );
 
         return back()
-            ->with('status', 'Pengaturan teknis berhasil diperbarui.')
-            ->with('open_advanced_panel', true)
-            ->with('selected_room_id', $device->room_id);
+            ->with('status', 'Pengaturan sistem berhasil diperbarui.')
+            ->with('open_advanced_panel', true);
     }
 }

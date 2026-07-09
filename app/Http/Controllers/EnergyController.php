@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Device;
 use App\Models\EnergyLog;
+use App\Models\EnergyMeter;
 use App\Models\SystemSetting;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -13,46 +13,129 @@ class EnergyController extends Controller
 {
     public function index(Request $request)
     {
+        /*
+         * Catatan:
+         * Parameter URL tetap memakai device_id agar form/filter lama tidak rusak.
+         * Tetapi isi device_id sekarang dimaknai sebagai energy_meter_id.
+         *
+         * Konsep baru:
+         * - devices      = relay/perangkat ON-OFF
+         * - energy_meter = PZEM ruangan/panel
+         * - energy_logs  = riwayat pembacaan PZEM
+         */
+
         $filters = [
-            'device_id' => $request->input('device_id'),
+            'meter_id' => $request->input('device_id'),
             'date_from' => $request->input('date_from'),
             'date_to' => $request->input('date_to'),
         ];
 
         $query = $this->energyLogQuery($filters);
 
-        $logs = (clone $query)->latest()->paginate(20)->appends($request->query());
+        $logs = (clone $query)
+            ->orderByDesc('observed_at')
+            ->paginate(20)
+            ->appends($request->query());
 
-        $logs->getCollection()->transform(function ($log) {
-            $log->room_name = $log->device?->room?->name ?? '-';
-            $log->device_name = $log->device?->name ?? '-';
+        /*
+         * Menambahkan nama ruangan dan nama meter agar Blade mudah menampilkan:
+         * RUANGAN | METER RUANGAN | WAKTU | TEGANGAN | ARUS | DAYA TOTAL | ENERGI
+         *
+         * device_name tetap diisi untuk kompatibilitas Blade lama.
+         */
+        $logs->getCollection()->transform(function (EnergyLog $log) {
+            $meter = $log->energyMeter;
+            $room = $meter?->room;
+
+            $log->room_name = $room?->name ?? '-';
+            $log->meter_name = $meter?->name ?? '-';
+
+            /*
+             * Kompatibilitas dengan Blade lama yang mungkin masih memakai device_name.
+             * Sekarang device_name berisi nama meter PZEM, bukan nama relay.
+             */
+            $log->device_name = $log->meter_name;
+
             return $log;
         });
 
-        $devices = Device::with('room')
-            ->whereHas('room', fn ($roomQuery) => $roomQuery->where('user_id', Auth::id()))
+        /*
+         * Variabel tetap bernama $devices agar Blade lama tidak error.
+         * Isinya sekarang adalah daftar PZEM / meter ruangan.
+         */
+        $devices = EnergyMeter::with('room')
+            ->where('user_id', Auth::id())
+            ->where('is_active', true)
             ->orderBy('name')
-            ->get();
+            ->get()
+            ->map(function (EnergyMeter $meter) {
+                $meter->device_name = $meter->name;
+                $meter->meter_name = $meter->name;
+                $meter->room_name = $meter->room?->name ?? '-';
+
+                return $meter;
+            });
+
+        $meterIds = $this->getMeterIds($filters);
+
+        $firstLog = (clone $query)
+            ->orderBy('observed_at')
+            ->first();
+
+        $lastLog = (clone $query)
+            ->orderByDesc('observed_at')
+            ->first();
+
+        $usageKwh = 0;
+
+        if ($firstLog && $lastLog) {
+            $usageKwh = $this->calculateEnergyUsage(
+                $meterIds,
+                $this->toCarbon($firstLog->observed_at),
+                $this->toCarbon($lastLog->observed_at)
+            );
+        }
 
         $summary = [
             'total_logs' => (clone $query)->count(),
-            'max_power' => (clone $query)->max('power') ?? 0,
-            'avg_power' => round((clone $query)->avg('power') ?? 0, 2),
-            'avg_voltage' => round((clone $query)->avg('voltage') ?? 0, 2),
-            'usage_kwh' => round((clone $query)->max('energy') ?? 0, 4),
-            'latest_time' => optional((clone $query)->latest()->first())->created_at?->format('d/m/Y H:i:s'),
+            'max_power' => round((float) ((clone $query)->max('power') ?? 0), 2),
+            'avg_power' => round((float) ((clone $query)->avg('power') ?? 0), 2),
+            'avg_voltage' => round((float) ((clone $query)->avg('voltage') ?? 0), 2),
+            'usage_kwh' => round($usageKwh, 4),
+            'latest_time' => $lastLog
+                ? $this->formatDateTime($lastLog->observed_at)
+                : null,
         ];
 
-        $chartLogs = (clone $query)->latest()->take(10)->get()->reverse()->values();
+        $chartLogs = (clone $query)
+            ->orderByDesc('observed_at')
+            ->take(10)
+            ->get()
+            ->reverse()
+            ->values();
 
         $chart = [
-            'labels' => $chartLogs->map(fn ($log) => optional($log->created_at)->format('H:i')),
-            'power' => $chartLogs->map(fn ($log) => round($log->power ?? 0, 2)),
-            'energy' => $chartLogs->map(fn ($log) => round($log->energy ?? 0, 4)),
+            'labels' => $chartLogs->map(function (EnergyLog $log) {
+                return $this->formatDateTime($log->observed_at, 'H:i');
+            }),
+            'power' => $chartLogs->map(function (EnergyLog $log) {
+                return round((float) ($log->power ?? 0), 2);
+            }),
+            /*
+             * Nilai energy dari PZEM biasanya kumulatif.
+             * Untuk pemakaian periode, sistem memakai calculateEnergyUsage().
+             */
+            'energy' => $chartLogs->map(function (EnergyLog $log) {
+                return round((float) ($log->energy ?? 0), 4);
+            }),
         ];
 
         $electricityTariff = $this->getElectricityTariff();
-        $paymentEstimations = $this->buildPaymentEstimations($devices->pluck('id'), $electricityTariff);
+
+        $paymentEstimations = $this->buildPaymentEstimations(
+            $meterIds,
+            $electricityTariff
+        );
 
         return view('auth.energy-history', compact(
             'logs',
@@ -65,154 +148,306 @@ class EnergyController extends Controller
         ));
     }
 
-   public function export(Request $request)
-{
-    $filters = [
-        'device_id' => $request->input('device_id'),
-        'date_from' => $request->input('date_from'),
-        'date_to' => $request->input('date_to'),
-    ];
+    public function export(Request $request)
+    {
+        $filters = [
+            'meter_id' => $request->input('device_id'),
+            'date_from' => $request->input('date_from'),
+            'date_to' => $request->input('date_to'),
+        ];
 
-    $query = $this->energyLogQuery($filters);
-    $electricityTariff = $this->getElectricityTariff();
-    $deviceIds = $this->getExportDeviceIds($filters);
-    $paymentEstimations = $this->buildPaymentEstimations($deviceIds, $electricityTariff);
+        $query = $this->energyLogQuery($filters);
+        $meterIds = $this->getMeterIds($filters);
+        $electricityTariff = $this->getElectricityTariff();
 
-    $devices = (clone $query)
-        ->latest()
-        ->get()
-        ->map(function ($log) {
+        $exportLogs = (clone $query)
+            ->orderByDesc('observed_at')
+            ->get();
+
+        $rangeStart = ! empty($filters['date_from'])
+            ? Carbon::parse($filters['date_from'])->startOfDay()
+            : ($exportLogs->last()
+                ? $this->toCarbon($exportLogs->last()->observed_at)
+                : null);
+
+        $rangeEnd = ! empty($filters['date_to'])
+            ? Carbon::parse($filters['date_to'])->endOfDay()
+            : ($exportLogs->first()
+                ? $this->toCarbon($exportLogs->first()->observed_at)
+                : null);
+
+        $usageKwh = ($rangeStart && $rangeEnd)
+            ? $this->calculateEnergyUsage(
+                $meterIds,
+                $rangeStart,
+                $rangeEnd
+            )
+            : 0;
+
+        $estimatedCost = $usageKwh * $electricityTariff;
+
+        $summaryRows = collect([[
+            'Ruangan' => 'TOTAL',
+            'Meter Ruangan' => 'Total Pemakaian Periode',
+            'Waktu' => Carbon::now('Asia/Jakarta')->format('d/m/Y H:i:s'),
+            'Tegangan (V)' => '-',
+            'Arus (A)' => '-',
+            'Daya Total (W)' => '-',
+            'Energi (kWh)' => number_format($usageKwh, 4, ',', '.'),
+            'Tarif per kWh' => 'Rp ' . number_format(
+                $electricityTariff,
+                0,
+                ',',
+                '.'
+            ),
+            'Estimasi Pembayaran' => 'Rp ' . number_format(
+                $estimatedCost,
+                0,
+                ',',
+                '.'
+            ),
+        ]]);
+
+        $logRows = $exportLogs->map(function (EnergyLog $log) {
             return [
-                'ruangan' => $log->device?->room?->name ?? '-',
-                'perangkat' => $log->device?->name ?? '-',
-                'waktu' => optional($log->updated_at)->timezone('Asia/Jakarta')->format('d/m/Y H:i:s'),
-                'tegangan' => number_format($log->voltage ?? 0, 2, '.', ''),
-                'arus' => number_format($log->current ?? 0, 2, '.', ''),
-                'daya' => number_format($log->power ?? 0, 2, '.', ''),
-                'energi' => number_format($log->energy_kwh ?? $log->energy ?? 0, 4, '.', ''),
+                'Ruangan' => $log->energyMeter?->room?->name ?? '-',
+                'Meter Ruangan' => $log->energyMeter?->name ?? '-',
+                'Waktu' => $this->formatDateTime($log->observed_at),
+                'Tegangan (V)' => number_format(
+                    (float) ($log->voltage ?? 0),
+                    2,
+                    ',',
+                    '.'
+                ),
+                'Arus (A)' => number_format(
+                    (float) ($log->current ?? 0),
+                    2,
+                    ',',
+                    '.'
+                ),
+                'Daya Total (W)' => number_format(
+                    (float) ($log->power ?? 0),
+                    2,
+                    ',',
+                    '.'
+                ),
+                'Energi (kWh)' => number_format(
+                    (float) ($log->energy ?? 0),
+                    4,
+                    ',',
+                    '.'
+                ),
+                'Tarif per kWh' => '-',
+                'Estimasi Pembayaran' => '-',
             ];
-        })
-        ->values();
+        });
 
-    return response()->json([
-        'generated_at' => Carbon::now('Asia/Jakarta')->format('d/m/Y H:i:s'),
-        'devices' => $devices,
-        'summary' => [
-            [
-                'label' => 'Energi (kWh)',
-                'hari_ini' => number_format($paymentEstimations['today']['usage_kwh'], 4, '.', ''),
-                'minggu_ini' => number_format($paymentEstimations['week']['usage_kwh'], 4, '.', ''),
-                'bulan_ini' => number_format($paymentEstimations['month']['usage_kwh'], 4, '.', ''),
-            ],
-            [
-                'label' => 'Tarif / kWh',
-                'hari_ini' => 'Rp' . number_format($electricityTariff, 0, ',', '.'),
-                'minggu_ini' => 'Rp' . number_format($electricityTariff, 0, ',', '.'),
-                'bulan_ini' => 'Rp' . number_format($electricityTariff, 0, ',', '.'),
-            ],
-            [
-                'label' => 'Estimasi Pembayaran',
-                'hari_ini' => 'Rp' . number_format($paymentEstimations['today']['estimated_cost'], 0, ',', '.'),
-                'minggu_ini' => 'Rp' . number_format($paymentEstimations['week']['estimated_cost'], 0, ',', '.'),
-                'bulan_ini' => 'Rp' . number_format($paymentEstimations['month']['estimated_cost'], 0, ',', '.'),
-            ],
-        ],
-    ]);
-}
+        return response()->json(
+            $summaryRows
+                ->concat($logRows)
+                ->values()
+        );
+    }
 
     private function energyLogQuery(array $filters)
     {
-        $query = EnergyLog::with('device.room')
-            ->whereHas('device.room', fn ($roomQuery) => $roomQuery->where('user_id', Auth::id()));
+        $query = EnergyLog::with('energyMeter.room')
+            ->whereHas('energyMeter', function ($meterQuery) {
+                $meterQuery->where('user_id', Auth::id());
+            });
 
-        if (!empty($filters['device_id'])) {
-            $query->where('device_id', $filters['device_id']);
+        if (! empty($filters['meter_id'])) {
+            $query->where('energy_meter_id', $filters['meter_id']);
         }
 
-        if (!empty($filters['date_from'])) {
-            $query->whereDate('created_at', '>=', $filters['date_from']);
+        if (! empty($filters['date_from'])) {
+            $query->whereDate(
+                'observed_at',
+                '>=',
+                $filters['date_from']
+            );
         }
 
-        if (!empty($filters['date_to'])) {
-            $query->whereDate('created_at', '<=', $filters['date_to']);
+        if (! empty($filters['date_to'])) {
+            $query->whereDate(
+                'observed_at',
+                '<=',
+                $filters['date_to']
+            );
         }
 
         return $query;
     }
 
+    private function getMeterIds(array $filters)
+    {
+        $query = EnergyMeter::query()
+            ->where('user_id', Auth::id())
+            ->where('is_active', true);
+
+        if (! empty($filters['meter_id'])) {
+            $query->where('id', $filters['meter_id']);
+        }
+
+        return $query->pluck('id');
+    }
+
     private function getElectricityTariff(): float
     {
-        $systemSetting = SystemSetting::where('user_id', Auth::id())->first();
+        $systemSetting = SystemSetting::where(
+            'user_id',
+            Auth::id()
+        )->first();
+
         return (float) ($systemSetting?->electricity_tariff ?? 1444);
     }
 
-    private function getExportDeviceIds(array $filters)
-    {
-        $devicesQuery = Device::whereHas('room', fn ($roomQuery) => $roomQuery->where('user_id', Auth::id()));
+    private function buildPaymentEstimations(
+        $meterIds,
+        float $tariff
+    ): array {
+        $now = Carbon::now('Asia/Jakarta');
 
-        if (!empty($filters['device_id'])) {
-            $devicesQuery->where('id', $filters['device_id']);
-        }
-
-        return $devicesQuery->pluck('id');
+        return [
+            'today' => $this->buildPaymentEstimation(
+                label: 'Hari Ini',
+                startDate: $now->copy()->startOfDay(),
+                endDate: $now->copy(),
+                meterIds: $meterIds,
+                tariff: $tariff
+            ),
+            'week' => $this->buildPaymentEstimation(
+                label: 'Minggu Ini',
+                startDate: $now->copy()->startOfWeek(),
+                endDate: $now->copy(),
+                meterIds: $meterIds,
+                tariff: $tariff
+            ),
+            'month' => $this->buildPaymentEstimation(
+                label: 'Bulan Ini',
+                startDate: $now->copy()->startOfMonth(),
+                endDate: $now->copy(),
+                meterIds: $meterIds,
+                tariff: $tariff
+            ),
+        ];
     }
 
-   private function buildPaymentEstimations($deviceIds, float $tariff): array
-{
-    $now = Carbon::now('Asia/Jakarta');
+    private function buildPaymentEstimation(
+        string $label,
+        Carbon $startDate,
+        Carbon $endDate,
+        $meterIds,
+        float $tariff
+    ): array {
+        $usageKwh = $this->calculateEnergyUsage(
+            $meterIds,
+            $startDate,
+            $endDate
+        );
 
-    return [
-        'today' => $this->buildPaymentEstimation(
-            'Hari Ini',
-            Carbon::today('Asia/Jakarta'),
-            $now->copy(),
-            $deviceIds,
-            $tariff
-        ),
-        'week' => $this->buildPaymentEstimation(
-            'Minggu Ini',
-            $now->copy()->startOfWeek(),
-            $now->copy(),
-            $deviceIds,
-            $tariff
-        ),
-        'month' => $this->buildPaymentEstimation(
-            'Bulan Ini',
-            $now->copy()->startOfMonth(),
-            $now->copy(),
-            $deviceIds,
-            $tariff
-        ),
-    ];
-}
+        $estimatedCost = $usageKwh * $tariff;
 
-private function buildPaymentEstimation(
-    string $label,
-    Carbon $startDate,
-    Carbon $endDate,
-    $deviceIds,
-    float $tariff
-): array {
-    $usageKwh = $this->calculateEnergyUsage($deviceIds, $startDate, $endDate);
-    $estimatedCost = $usageKwh * $tariff;
+        return [
+            'label' => $label,
+            'period' => $startDate->format('d/m/Y')
+                . ' - '
+                . $endDate->format('d/m/Y'),
+            'usage_kwh' => round($usageKwh, 4),
+            'tariff' => round($tariff, 2),
+            'estimated_cost' => round($estimatedCost),
+            'formula' => round($usageKwh, 4)
+                . ' kWh x Rp '
+                . number_format($tariff, 0, ',', '.'),
+        ];
+    }
 
-    return [
-        'label' => $label,
-        'period' => $startDate->format('d/m/Y') . ' - ' . $endDate->format('d/m/Y'),
-        'usage_kwh' => round($usageKwh, 4),
-        'tariff' => round($tariff, 2),
-        'estimated_cost' => round($estimatedCost),
-    ];
-}
-
-    private function calculateEnergyUsage($deviceIds, Carbon $startDate, Carbon $endDate): float
-    {
-        if ($deviceIds->isEmpty()) {
+    /*
+     * PZEM mengirim nilai energy kumulatif.
+     * Jadi pemakaian periode bukan SUM(energy), tetapi selisih antar pembacaan.
+     */
+    private function calculateEnergyUsage(
+        $meterIds,
+        Carbon $startDate,
+        Carbon $endDate
+    ): float {
+        if ($meterIds->isEmpty()) {
             return 0;
         }
 
-        return (float) EnergyLog::whereIn('device_id', $deviceIds)
-            ->whereBetween('created_at', [$startDate, $endDate])
-            ->sum('energy');
+        $totalUsage = 0.0;
+
+        foreach ($meterIds as $meterId) {
+            $previousLog = EnergyLog::query()
+                ->where('energy_meter_id', $meterId)
+                ->where('observed_at', '<', $startDate)
+                ->whereNotNull('energy')
+                ->orderByDesc('observed_at')
+                ->first();
+
+            $logs = EnergyLog::query()
+                ->where('energy_meter_id', $meterId)
+                ->whereBetween('observed_at', [$startDate, $endDate])
+                ->whereNotNull('energy')
+                ->orderBy('observed_at')
+                ->get([
+                    'id',
+                    'energy_meter_id',
+                    'energy',
+                    'observed_at',
+                ]);
+
+            $previousEnergy = $previousLog
+                ? (float) $previousLog->energy
+                : null;
+
+            foreach ($logs as $log) {
+                $currentEnergy = (float) $log->energy;
+
+                if ($previousEnergy === null) {
+                    $previousEnergy = $currentEnergy;
+                    continue;
+                }
+
+                /*
+                 * Normal:
+                 * currentEnergy >= previousEnergy
+                 * usage = selisih.
+                 *
+                 * Kalau PZEM reset dan nilai energy turun:
+                 * currentEnergy < previousEnergy
+                 * usage dianggap mulai dari currentEnergy.
+                 */
+                $totalUsage += $currentEnergy >= $previousEnergy
+                    ? $currentEnergy - $previousEnergy
+                    : max(0, $currentEnergy);
+
+                $previousEnergy = $currentEnergy;
+            }
+        }
+
+        return round($totalUsage, 4);
+    }
+
+    private function toCarbon($value): Carbon
+    {
+        if ($value instanceof Carbon) {
+            return $value->copy();
+        }
+
+        return Carbon::parse($value);
+    }
+
+    private function formatDateTime(
+        $value,
+        string $format = 'd/m/Y H:i:s'
+    ): ?string {
+        if (! $value) {
+            return null;
+        }
+
+        return $this->toCarbon($value)
+            ->timezone('Asia/Jakarta')
+            ->format($format);
     }
 }
