@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Device;
+use App\Models\EnergyLog;
 use App\Models\Room;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -248,7 +250,24 @@ class DeviceController extends Controller
             }
 
             /*
-             * Topic ini masih mengikuti firmware Anda saat ini:
+             * Perbaikan utama:
+             * Tombol ON/OFF hanya boleh berjalan jika ESP32 dianggap online.
+             *
+             * Untuk sementara, ESP32 dianggap online jika ada telemetry PZEM
+             * dari ESP Unit ID yang sama dalam beberapa menit terakhir.
+             */
+            if (! $this->isEspUnitOnline($espUid)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'ESP32 belum online. Sambungkan alat IoT terlebih dahulu atau tunggu telemetry PZEM masuk.',
+                    'esp_online' => false,
+                    'esp_unit_id' => $espUid,
+                    'device_id' => $device->id,
+                ], 409);
+            }
+
+            /*
+             * Topic ini mengikuti firmware SmartVolt saat ini:
              * smartvolt/unit/{ESP_UNIT_ID}/command
              */
             $topic = 'smartvolt/unit/' . $espUid . '/command';
@@ -270,9 +289,12 @@ class DeviceController extends Controller
 
             /*
              * Catatan:
-             * Ini masih update langsung setelah publish MQTT.
-             * Nanti untuk versi lebih profesional, bagian ini diganti
-             * dengan acknowledgement dari ESP32.
+             * Bagian ini masih update setelah MQTT publish.
+             * Ini sudah lebih aman daripada sebelumnya karena hanya berjalan
+             * ketika ESP32 punya telemetry terbaru.
+             *
+             * Versi paling profesional nanti:
+             * status hanya berubah setelah ESP32 mengirim ACK.
              */
             $device->update([
                 'status' => $newStatus,
@@ -287,6 +309,8 @@ class DeviceController extends Controller
                 'room_id' => $device->room_id,
                 'status' => $newStatus ? 'on' : 'off',
                 'label' => $newStatus ? 'Nyala' : 'Mati',
+                'esp_online' => true,
+                'esp_unit_id' => $espUid,
                 'mqtt_topic' => $topic,
                 'mqtt_payload' => $payloadArray,
             ]);
@@ -352,6 +376,45 @@ class DeviceController extends Controller
             'true',
             '1',
         ], true);
+    }
+
+   private function isEspUnitOnline(string $espUid): bool
+{
+    $espUid = trim($espUid);
+
+    if ($espUid === '') {
+        return false;
+    }
+
+    /*
+     * Untuk status online/offline, gunakan created_at.
+     * Alasannya: created_at adalah waktu data benar-benar diterima Laravel.
+     */
+    if (
+        ! Schema::hasTable('energy_meters') ||
+        ! Schema::hasTable('energy_logs') ||
+        ! Schema::hasColumn('energy_meters', 'esp_unit_id') ||
+        ! Schema::hasColumn('energy_meters', 'is_active') ||
+        ! Schema::hasColumn('energy_logs', 'energy_meter_id') ||
+        ! Schema::hasColumn('energy_logs', 'created_at')
+    ) {
+        return false;
+    }
+
+    $timeoutMinutes = $this->espOnlineTimeoutMinutes();
+
+    return EnergyLog::query()
+        ->where('created_at', '>=', now()->subMinutes($timeoutMinutes))
+        ->whereHas('energyMeter', function ($query) use ($espUid) {
+            $query->where('esp_unit_id', $espUid)
+                ->where('is_active', true);
+        })
+        ->exists();
+}
+
+    private function espOnlineTimeoutMinutes(): int
+    {
+        return max(1, (int) config('services.iot.online_timeout_minutes', 2));
     }
 
     private function redirectAfterAction(

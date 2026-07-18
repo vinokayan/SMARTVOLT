@@ -68,7 +68,7 @@
                 </div>
 
                 <h1 class="sv-showcase-title">
-                    Kelola listrik rumah tanpa ribet.
+                    Kelola listrik rumah tanpa ribet
                 </h1>
 
                 <p class="sv-showcase-desc">
