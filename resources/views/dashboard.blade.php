@@ -502,17 +502,7 @@
                                                         <div>
                                                             <div class="sv-dashboard-device-name">{{ $device->name }}</div>
 
-                                                            <div class="sv-dashboard-device-meta">
-                                                                {{ $deviceTypeLabel }}
-
-                                                                <span class="sv-iot-status {{ $isEspOnline ? 'is-online' : 'is-offline' }}">
-                                                                    {{ $isEspOnline ? 'Nyalah' : 'Mati' }}
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
-                                                    <form
+                                                    <form>
                                                         action="{{ route('devices.toggle', $device->id) }}"
                                                         method="POST"
                                                         class="sv-device-toggle-form"

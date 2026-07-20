@@ -32,7 +32,12 @@ class EnergyController extends Controller
 
         $query = $this->energyLogQuery($filters);
 
-        $logs = (clone $query)
+        /*
+         * Tabel utama hanya menampilkan 1 baris terbaru untuk setiap meter PZEM.
+         * Jika telemetry baru masuk dari meter yang sama, barisnya tidak bertambah,
+         * tetapi nilai waktu, tegangan, arus, daya, dan energi berubah di baris yang sama.
+         */
+        $logs = $this->latestLogsForTable($filters)
             ->orderByDesc('observed_at')
             ->paginate(20)
             ->appends($request->query());
@@ -97,7 +102,7 @@ class EnergyController extends Controller
         }
 
         $summary = [
-            'total_logs' => (clone $query)->count(),
+            'total_logs' => (clone $this->latestLogsForTable($filters))->count(),
             'max_power' => round((float) ((clone $query)->max('power') ?? 0), 2),
             'avg_power' => round((float) ((clone $query)->avg('power') ?? 0), 2),
             'avg_voltage' => round((float) ((clone $query)->avg('voltage') ?? 0), 2),
@@ -160,20 +165,36 @@ class EnergyController extends Controller
         $meterIds = $this->getMeterIds($filters);
         $electricityTariff = $this->getElectricityTariff();
 
-        $exportLogs = (clone $query)
+        /*
+         * Ekspor juga dibuat sama dengan tampilan tabel:
+         * hanya 1 data terbaru untuk setiap meter PZEM.
+         */
+        $exportLogs = $this->latestLogsForTable($filters)
             ->orderByDesc('observed_at')
             ->get();
 
+        /*
+         * Range perhitungan tetap memakai seluruh log sesuai filter,
+         * bukan hanya data terbaru, agar estimasi kWh tetap benar.
+         */
+        $firstLogForRange = (clone $query)
+            ->orderBy('observed_at')
+            ->first();
+
+        $lastLogForRange = (clone $query)
+            ->orderByDesc('observed_at')
+            ->first();
+
         $rangeStart = ! empty($filters['date_from'])
             ? Carbon::parse($filters['date_from'])->startOfDay()
-            : ($exportLogs->last()
-                ? $this->toCarbon($exportLogs->last()->observed_at)
+            : ($firstLogForRange
+                ? $this->toCarbon($firstLogForRange->observed_at)
                 : null);
 
         $rangeEnd = ! empty($filters['date_to'])
             ? Carbon::parse($filters['date_to'])->endOfDay()
-            : ($exportLogs->first()
-                ? $this->toCarbon($exportLogs->first()->observed_at)
+            : ($lastLogForRange
+                ? $this->toCarbon($lastLogForRange->observed_at)
                 : null);
 
         $usageKwh = ($rangeStart && $rangeEnd)
@@ -247,6 +268,20 @@ class EnergyController extends Controller
                 ->concat($logRows)
                 ->values()
         );
+    }
+
+    private function latestLogsForTable(array $filters)
+    {
+        $latestLogIds = (clone $this->energyLogQuery($filters))
+            ->whereNotNull('energy_meter_id')
+            ->selectRaw('MAX(id) as id')
+            ->groupBy('energy_meter_id')
+            ->pluck('id')
+            ->filter()
+            ->values();
+
+        return EnergyLog::with('energyMeter.room')
+            ->whereIn('id', $latestLogIds);
     }
 
     private function energyLogQuery(array $filters)

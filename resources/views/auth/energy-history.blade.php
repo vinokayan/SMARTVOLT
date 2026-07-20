@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="60">
+    >
     <title>Pemakaian Listrik Ruangan - SmartVolt</title>
 
     <link rel="stylesheet" href="{{ asset('assets/css/smartvolt-brand.css') }}?v={{ filemtime(public_path('assets/css/smartvolt-brand.css')) }}">
@@ -555,13 +555,25 @@
                                         <td>{{ $log->room_name ?? '-' }}</td>
                                         <td>{{ $log->meter_name ?? $log->device_name ?? '-' }}</td>
 
-                                        <td>
-                                            @if($waktuLog)
-                                                {{ \Carbon\Carbon::parse($waktuLog)->timezone('Asia/Jakarta')->format('d/m/Y H:i:s') }}
-                                            @else
-                                                -
-                                            @endif
-                                        </td>
+                                      <td>
+    @if($waktuLog)
+        @php
+            $waktuMentah = $waktuLog instanceof \Carbon\Carbon
+                ? $waktuLog->format('Y-m-d H:i:s')
+                : substr((string) $waktuLog, 0, 19);
+
+            $waktuWib = \Carbon\Carbon::createFromFormat(
+                'Y-m-d H:i:s',
+                $waktuMentah,
+                'UTC'
+            )->timezone('Asia/Jakarta');
+        @endphp
+
+        {{ $waktuWib->format('d/m/Y H:i:s') }}
+    @else
+        -
+    @endif
+</td>
 
                                         <td>{{ number_format($log->voltage ?? 0, 2, ',', '.') }} V</td>
                                         <td>{{ number_format($log->current ?? 0, 2, ',', '.') }} A</td>

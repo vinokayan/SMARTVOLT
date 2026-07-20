@@ -1,346 +1,1253 @@
-#include <Arduino.h>
 #include <WiFi.h>
-#include <HTTPClient.h>
+#include <WiFiClient.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <PZEM004Tv30.h>
-#include <math.h>
+#include <Preferences.h>
+#include <WebServer.h>
+#include <DNSServer.h>
+#include <ArduinoOTA.h>
+#include <esp_task_wdt.h>
+#include <esp_idf_version.h>
 
-/*
-|--------------------------------------------------------------------------
-| SMARTVOLT ESP32 - KODE AMAN TEST RELAY
-|--------------------------------------------------------------------------
-| Fungsi:
-| 1. Menghubungkan ESP32 ke WiFi
-| 2. Mengirim data listrik/dummy ke Laravel
-| 3. Menerima perintah ON/OFF dari website melalui MQTT
-| 4. Mengontrol relay 2 channel
-|--------------------------------------------------------------------------
-*/
+// ============================================================================
+// SMARTVOLT ESP32 PROFESSIONAL FIRMWARE
+// Versi: 1.0.0
+//
+// Fitur utama:
+// - Safe boot: semua relay OFF sebelum proses lain dijalankan.
+// - Konfigurasi tersimpan di Preferences/NVS.
+// - Portal konfigurasi melalui hotspot SmartVolt-Setup-XXXX.
+// - Wi-Fi dan MQTT auto reconnect.
+// - Telemetry normal setiap 1 menit.
+// - Retry telemetry bertahap: 5, 10, 20, 30, lalu 60 detik.
+// - Heartbeat/status MQTT setiap 20 detik + Last Will offline.
+// - Validasi command MQTT yang ketat dan perlindungan command duplikat.
+// - ACK command relay melalui MQTT.
+// - Watchdog untuk restart otomatis jika loop utama hang.
+// - OTA update melalui jaringan lokal.
+//
+// Catatan backend:
+// - Telemetry tetap memakai POST /api/iot/telemetry.
+// - Command MQTT: smartvolt/unit/{esp_unit_id}/command
+// - ACK MQTT:     smartvolt/unit/{esp_unit_id}/ack
+// - Status MQTT:  smartvolt/unit/{esp_unit_id}/status (retained)
+// ============================================================================
 
+// ============================================================================
+// IDENTITAS FIRMWARE
+// ============================================================================
+const char* FIRMWARE_VERSION = "1.0.0";
+const char* DEVICE_PRODUCT = "SmartVolt";
 
-/*
-|--------------------------------------------------------------------------
-| 1. KONFIGURASI WIFI DAN SERVER
-|--------------------------------------------------------------------------
-*/
+// ============================================================================
+// DEFAULT CONFIGURATION
+// Nilai ini dipakai pada perangkat yang belum pernah dikonfigurasi.
+// Sesudah firmware terpasang, konfigurasi dapat diubah tanpa coding ulang
+// melalui portal konfigurasi.
+// ============================================================================
+const char* DEFAULT_WIFI_SSID = "Kayan";
+const char* DEFAULT_WIFI_PASSWORD = "11111111";
 
-const char* WIFI_SSID = "Kayan";
-const char* WIFI_PASSWORD = "11111111";
+const char* DEFAULT_SERVER_HOST = "172.20.10.3";
+const uint16_t DEFAULT_SERVER_PORT = 8000;
+const char* DEFAULT_API_KEY = "smartvolt123";
 
-const char* LARAVEL_BASE_URL = "http://172.20.10.3:8000";
-const char* IOT_API_KEY = "smartvolt123";
+const char* DEFAULT_MQTT_HOST = "172.20.10.3";
+const uint16_t DEFAULT_MQTT_PORT = 1883;
+const char* DEFAULT_MQTT_USERNAME = "";
+const char* DEFAULT_MQTT_PASSWORD = "";
 
-const char* MQTT_HOST = "172.20.10.3";
-const uint16_t MQTT_PORT = 1883;
+const char* DEFAULT_ESP_UNIT_ID = "2";
+const char* DEFAULT_METER_CODE = "main";
 
-const char* MQTT_USERNAME = "";
-const char* MQTT_PASSWORD = "";
+// Ganti melalui portal konfigurasi setelah pengujian pertama.
+const char* DEFAULT_OTA_PASSWORD = "SmartVoltOTA123";
 
+// ============================================================================
+// HARDWARE CONFIGURATION
+// ============================================================================
+// PZEM TX -> GPIO16 (RX2 ESP32)
+// PZEM RX -> GPIO17 (TX2 ESP32)
+const uint8_t PZEM_RX_PIN = 16;
+const uint8_t PZEM_TX_PIN = 17;
 
-/*
-|--------------------------------------------------------------------------
-| 2. IDENTITAS ALAT
-|--------------------------------------------------------------------------
-| Harus sama dengan konfigurasi di Panel Teknisi website.
-|--------------------------------------------------------------------------
-*/
+// relay_code 1 -> GPIO23 -> IN3 -> Beban 1
+// relay_code 2 -> GPIO19 -> IN2 -> Beban 2
+const uint8_t RELAY1_PIN = 23;
+const uint8_t RELAY2_PIN = 19;
 
-const char* ESP_UNIT_ID = "2";
-const char* METER_CODE = "main";
+// Modul relay proyek ini menggunakan ACTIVE HIGH:
+// HIGH = ON, LOW = OFF.
+// Ubah menjadi true hanya jika hasil pengujian relay terbalik.
+const bool RELAY_ACTIVE_LOW = false;
 
+// Tombol BOOT ESP32. Tahan saat boot untuk membuka portal konfigurasi.
+// Tahan 8 detik saat perangkat berjalan untuk membuka portal konfigurasi.
+const uint8_t SETUP_BUTTON_PIN = 0;
+const unsigned long SETUP_BUTTON_HOLD_MS = 8000UL;
+const unsigned long SETUP_BUTTON_BOOT_HOLD_MS = 3000UL;
 
-/*
-|--------------------------------------------------------------------------
-| 3. MODE TESTING
-|--------------------------------------------------------------------------
-| true  = tetap kirim data dummy meskipun PZEM belum terbaca
-| false = hanya kirim data jika PZEM benar-benar terbaca
-|--------------------------------------------------------------------------
-*/
+// ============================================================================
+// INTERVAL DAN TIMEOUT
+// ============================================================================
+const unsigned long WIFI_CONNECT_TIMEOUT_MS = 25000UL;
+const unsigned long WIFI_RECONNECT_INTERVAL_MS = 7000UL;
+const unsigned long MQTT_RECONNECT_INTERVAL_MS = 5000UL;
 
-const bool TEST_MODE_WITHOUT_PZEM = true;
+const unsigned long PZEM_READ_INTERVAL_MS = 5000UL;
+const unsigned long TELEMETRY_INTERVAL_MS = 60000UL;       // 1 menit
+const unsigned long SENSOR_RETRY_INTERVAL_MS = 10000UL;    // PZEM invalid
+const unsigned long HEARTBEAT_INTERVAL_MS = 20000UL;       // 20 detik
 
+const unsigned long HTTP_CONNECT_TIMEOUT_MS = 5000UL;
+const unsigned long HTTP_RESPONSE_TIMEOUT_MS = 10000UL;
 
-/*
-|--------------------------------------------------------------------------
-| 4. MODE RELAY
-|--------------------------------------------------------------------------
-| Kebanyakan relay 2 channel memakai ACTIVE LOW:
-| ON  = LOW
-| OFF = HIGH
-|
-| Kalau setelah upload relay malah kebalik,
-| ubah true menjadi false.
-|--------------------------------------------------------------------------
-*/
+const uint32_t WATCHDOG_TIMEOUT_SECONDS = 30;
 
-const bool RELAY_ACTIVE_LOW = true;
+// ============================================================================
+// DATA CONFIGURATION
+// ============================================================================
+struct DeviceConfig {
+  String wifiSsid;
+  String wifiPassword;
 
+  String serverHost;
+  uint16_t serverPort;
+  String apiKey;
 
-/*
-|--------------------------------------------------------------------------
-| 5. PIN HARDWARE
-|--------------------------------------------------------------------------
-*/
+  String mqttHost;
+  uint16_t mqttPort;
+  String mqttUsername;
+  String mqttPassword;
 
-#define PZEM_RX_PIN 16
-#define PZEM_TX_PIN 17
+  String espUnitId;
+  String meterCode;
+  String otaPassword;
+};
 
-#define RELAY1_PIN 26
-#define RELAY2_PIN 27
+DeviceConfig config;
+Preferences preferences;
 
+// ============================================================================
+// SENSOR DATA
+// ============================================================================
+struct PzemReading {
+  float voltage = NAN;
+  float current = NAN;
+  float power = NAN;
+  float energy = NAN;
+  float frequency = NAN;
+  float powerFactor = NAN;
+  bool valid = false;
+  unsigned long readAtMillis = 0;
+};
 
-/*
-|--------------------------------------------------------------------------
-| 6. INTERVAL
-|--------------------------------------------------------------------------
-*/
-
-const unsigned long TELEMETRY_INTERVAL_MS = 10000;
-const unsigned long WIFI_RECONNECT_INTERVAL_MS = 5000;
-const unsigned long MQTT_RECONNECT_INTERVAL_MS = 5000;
-
-
-/*
-|--------------------------------------------------------------------------
-| 7. OBJECT GLOBAL
-|--------------------------------------------------------------------------
-*/
-
-WiFiClient wifiClient;
-PubSubClient mqttClient(wifiClient);
-
+PzemReading latestPzem;
 PZEM004Tv30 pzem(Serial2, PZEM_RX_PIN, PZEM_TX_PIN);
 
-unsigned long lastTelemetryMs = 0;
-unsigned long lastWifiReconnectMs = 0;
-unsigned long lastMqttReconnectMs = 0;
-unsigned long telemetryCounter = 0;
+// ============================================================================
+// NETWORK CLIENTS
+// ============================================================================
+WiFiClient mqttWifiClient;
+PubSubClient mqttClient(mqttWifiClient);
 
-String lastCommandId = "";
+DNSServer dnsServer;
+WebServer setupWebServer(80);
 
+// ============================================================================
+// RUNTIME STATE
+// ============================================================================
+bool relay1State = false;
+bool relay2State = false;
 
-/*
-|--------------------------------------------------------------------------
-| 8. DATA RELAY
-|--------------------------------------------------------------------------
-*/
+bool wifiWasConnected = false;
+bool otaInitialized = false;
+bool watchdogInitialized = false;
+bool portalRequestedAtBoot = false;
 
-struct RelayChannel {
-  const char* relayCode;
-  uint8_t pin;
-  bool state;
-  int deviceId;
+unsigned long lastWiFiReconnectMillis = 0;
+unsigned long lastMqttReconnectMillis = 0;
+unsigned long lastPzemReadMillis = 0;
+unsigned long lastHeartbeatMillis = 0;
+
+unsigned long lastTelemetryAttemptMillis = 0;
+unsigned long lastTelemetrySuccessMillis = 0;
+unsigned long telemetryWaitIntervalMillis = 0;
+uint8_t telemetryFailureCount = 0;
+bool telemetryImmediate = true;
+
+unsigned long setupButtonPressedAt = 0;
+bool setupButtonActionTriggered = false;
+
+const size_t COMMAND_HISTORY_SIZE = 8;
+String commandHistory[COMMAND_HISTORY_SIZE];
+size_t commandHistoryIndex = 0;
+
+// ============================================================================
+// ENUMERASI HASIL TELEMETRY
+// ============================================================================
+enum class TelemetryResult {
+  Success,
+  NetworkError,
+  SensorInvalid
 };
 
-RelayChannel relays[] = {
-  {"1", RELAY1_PIN, false, 0},
-  {"2", RELAY2_PIN, false, 0}
-};
-
-const uint8_t RELAY_COUNT = sizeof(relays) / sizeof(relays[0]);
-
-
-/*
-|--------------------------------------------------------------------------
-| FORWARD DECLARATIONS (Required for C++ compilation in PlatformIO)
-|--------------------------------------------------------------------------
-*/
-
-String getBaseUrl();
-String apiUrl(const String& path);
-String commandTopic();
-String statusTopic();
-bool isValidNumber(float value);
-String getChipId();
-int relayOutputLevel(bool on);
-String levelText(int level);
-RelayChannel* findRelayByCode(const String& relayCode);
-void applyRelayState(RelayChannel& relay, bool state);
-void setupRelays();
-bool parseRelayState(JsonVariantConst value, bool& state);
-void connectWiFi();
-void maintainWiFi();
-void addSmartVoltHeaders(HTTPClient& http);
-void sendTelemetry();
-void sendRelayAck(
-  const String& commandId,
-  int deviceId,
-  const String& relayCode,
-  bool state,
-  bool applied,
-  const String& message
-);
-void handleMqttCommand(char* topic, byte* payload, unsigned int length);
-void connectMqtt();
-void maintainMqtt();
-
-
-/*
-|--------------------------------------------------------------------------
-| HELPER DASAR
-|--------------------------------------------------------------------------
-*/
-
-String getBaseUrl() {
-  String base = String(LARAVEL_BASE_URL);
-  base.trim();
-
-  if (base.endsWith("/")) {
-    base.remove(base.length() - 1);
-  }
-
-  return base;
+// ============================================================================
+// UTILITAS DASAR
+// ============================================================================
+int relayOnLevel() {
+  return RELAY_ACTIVE_LOW ? LOW : HIGH;
 }
 
-String apiUrl(const String& path) {
-  return getBaseUrl() + path;
+int relayOffLevel() {
+  return RELAY_ACTIVE_LOW ? HIGH : LOW;
+}
+
+String chipSuffix() {
+  uint64_t chipId = ESP.getEfuseMac();
+  char value[9];
+  snprintf(value, sizeof(value), "%08X", static_cast<uint32_t>(chipId));
+  return String(value);
+}
+
+String deviceHostname() {
+  String hostname = String("smartvolt-") + config.espUnitId;
+  hostname.toLowerCase();
+  hostname.replace(" ", "-");
+  return hostname;
 }
 
 String commandTopic() {
-  return String("smartvolt/unit/") + ESP_UNIT_ID + "/command";
+  return String("smartvolt/unit/") + config.espUnitId + "/command";
+}
+
+String ackTopic() {
+  return String("smartvolt/unit/") + config.espUnitId + "/ack";
 }
 
 String statusTopic() {
-  return String("smartvolt/unit/") + ESP_UNIT_ID + "/status";
+  return String("smartvolt/unit/") + config.espUnitId + "/status";
 }
 
-bool isValidNumber(float value) {
-  return !isnan(value) && !isinf(value);
+String htmlEscape(const String& input) {
+  String output = input;
+  output.replace("&", "&amp;");
+  output.replace("<", "&lt;");
+  output.replace(">", "&gt;");
+  output.replace("\"", "&quot;");
+  output.replace("'", "&#39;");
+  return output;
 }
 
-String getChipId() {
-  uint64_t mac = ESP.getEfuseMac();
-
-  char chipId[20];
-  snprintf(
-    chipId,
-    sizeof(chipId),
-    "%04X%08X",
-    (uint16_t)(mac >> 32),
-    (uint32_t)mac
-  );
-
-  return String(chipId);
+uint16_t parsePortOrDefault(const String& text, uint16_t fallback) {
+  long parsed = text.toInt();
+  if (parsed < 1 || parsed > 65535) {
+    return fallback;
+  }
+  return static_cast<uint16_t>(parsed);
 }
 
+bool isValidConfig(const DeviceConfig& candidate) {
+  return candidate.wifiSsid.length() > 0 &&
+         candidate.serverHost.length() > 0 &&
+         candidate.serverPort > 0 &&
+         candidate.apiKey.length() > 0 &&
+         candidate.mqttHost.length() > 0 &&
+         candidate.mqttPort > 0 &&
+         candidate.espUnitId.length() > 0 &&
+         candidate.meterCode.length() > 0;
+}
 
-/*
-|--------------------------------------------------------------------------
-| HELPER RELAY
-|--------------------------------------------------------------------------
-*/
+// ============================================================================
+// SAFE BOOT RELAY
+// ============================================================================
+void initializeRelaysSafe() {
+  pinMode(RELAY1_PIN, OUTPUT);
+  pinMode(RELAY2_PIN, OUTPUT);
 
-int relayOutputLevel(bool on) {
-  if (RELAY_ACTIVE_LOW) {
-    return on ? LOW : HIGH;
+  // OFF ditulis sebelum Serial, Wi-Fi, MQTT, dan sensor dijalankan.
+  digitalWrite(RELAY1_PIN, relayOffLevel());
+  digitalWrite(RELAY2_PIN, relayOffLevel());
+
+  relay1State = false;
+  relay2State = false;
+}
+
+void allRelaysOff() {
+  relay1State = false;
+  relay2State = false;
+
+  digitalWrite(RELAY1_PIN, relayOffLevel());
+  digitalWrite(RELAY2_PIN, relayOffLevel());
+
+  Serial.println("[RELAY] Semua relay OFF");
+}
+
+bool setRelayByCode(const String& relayCode, bool requestedState, bool& actualState) {
+  uint8_t pin = 0;
+
+  if (relayCode == "1") {
+    pin = RELAY1_PIN;
+  } else if (relayCode == "2") {
+    pin = RELAY2_PIN;
+  } else {
+    return false;
   }
 
-  return on ? HIGH : LOW;
+  const int expectedLevel = requestedState ? relayOnLevel() : relayOffLevel();
+  digitalWrite(pin, expectedLevel);
+  delay(2);
+
+  const int actualLevel = digitalRead(pin);
+  actualState = (actualLevel == relayOnLevel());
+
+  if (relayCode == "1") {
+    relay1State = actualState;
+  } else {
+    relay2State = actualState;
+  }
+
+  Serial.print("[RELAY] relay_code ");
+  Serial.print(relayCode);
+  Serial.print(" -> GPIO");
+  Serial.print(pin);
+  Serial.print(" -> diminta ");
+  Serial.print(requestedState ? "ON" : "OFF");
+  Serial.print(" -> aktual ");
+  Serial.println(actualState ? "ON" : "OFF");
+
+  return actualState == requestedState;
 }
 
-String levelText(int level) {
-  return level == HIGH ? "HIGH" : "LOW";
+// ============================================================================
+// CONFIGURATION STORAGE
+// ============================================================================
+void applyDefaultConfig() {
+  config.wifiSsid = DEFAULT_WIFI_SSID;
+  config.wifiPassword = DEFAULT_WIFI_PASSWORD;
+
+  config.serverHost = DEFAULT_SERVER_HOST;
+  config.serverPort = DEFAULT_SERVER_PORT;
+  config.apiKey = DEFAULT_API_KEY;
+
+  config.mqttHost = DEFAULT_MQTT_HOST;
+  config.mqttPort = DEFAULT_MQTT_PORT;
+  config.mqttUsername = DEFAULT_MQTT_USERNAME;
+  config.mqttPassword = DEFAULT_MQTT_PASSWORD;
+
+  config.espUnitId = DEFAULT_ESP_UNIT_ID;
+  config.meterCode = DEFAULT_METER_CODE;
+  config.otaPassword = DEFAULT_OTA_PASSWORD;
 }
 
-RelayChannel* findRelayByCode(const String& relayCode) {
-  for (uint8_t i = 0; i < RELAY_COUNT; i++) {
-    if (relayCode == String(relays[i].relayCode)) {
-      return &relays[i];
+void saveConfig() {
+  preferences.begin("smartvolt", false);
+
+  preferences.putBool("saved", true);
+  preferences.putString("ssid", config.wifiSsid);
+  preferences.putString("wpass", config.wifiPassword);
+
+  preferences.putString("shost", config.serverHost);
+  preferences.putUShort("sport", config.serverPort);
+  preferences.putString("apikey", config.apiKey);
+
+  preferences.putString("mhost", config.mqttHost);
+  preferences.putUShort("mport", config.mqttPort);
+  preferences.putString("muser", config.mqttUsername);
+  preferences.putString("mpass", config.mqttPassword);
+
+  preferences.putString("espid", config.espUnitId);
+  preferences.putString("meter", config.meterCode);
+  preferences.putString("otapass", config.otaPassword);
+
+  preferences.end();
+}
+
+void loadConfig() {
+  applyDefaultConfig();
+
+  preferences.begin("smartvolt", false);
+  bool saved = preferences.getBool("saved", false);
+
+  if (saved) {
+    config.wifiSsid = preferences.getString("ssid", config.wifiSsid);
+    config.wifiPassword = preferences.getString("wpass", config.wifiPassword);
+
+    config.serverHost = preferences.getString("shost", config.serverHost);
+    config.serverPort = preferences.getUShort("sport", config.serverPort);
+    config.apiKey = preferences.getString("apikey", config.apiKey);
+
+    config.mqttHost = preferences.getString("mhost", config.mqttHost);
+    config.mqttPort = preferences.getUShort("mport", config.mqttPort);
+    config.mqttUsername = preferences.getString("muser", config.mqttUsername);
+    config.mqttPassword = preferences.getString("mpass", config.mqttPassword);
+
+    config.espUnitId = preferences.getString("espid", config.espUnitId);
+    config.meterCode = preferences.getString("meter", config.meterCode);
+    config.otaPassword = preferences.getString("otapass", config.otaPassword);
+  }
+
+  portalRequestedAtBoot = preferences.getBool("portal", false);
+  if (portalRequestedAtBoot) {
+    preferences.putBool("portal", false);
+  }
+
+  preferences.end();
+
+  if (!saved || !isValidConfig(config)) {
+    applyDefaultConfig();
+    saveConfig();
+  }
+}
+
+void requestConfigurationPortal() {
+  preferences.begin("smartvolt", false);
+  preferences.putBool("portal", true);
+  preferences.end();
+
+  Serial.println("[CONFIG] Portal konfigurasi akan dibuka setelah restart.");
+  delay(300);
+  ESP.restart();
+}
+
+void clearStoredConfigAndRestart() {
+  preferences.begin("smartvolt", false);
+  preferences.clear();
+  preferences.putBool("portal", true);
+  preferences.end();
+
+  Serial.println("[CONFIG] Konfigurasi dihapus. Portal setup dibuka setelah restart.");
+  delay(300);
+  ESP.restart();
+}
+
+// ============================================================================
+// CONFIGURATION PORTAL
+// ============================================================================
+String buildConfigurationPage(const String& message = "") {
+  String page;
+  page.reserve(9000);
+
+  page += F("<!doctype html><html lang='id'><head>");
+  page += F("<meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>");
+  page += F("<title>SmartVolt Setup</title><style>");
+  page += F("body{font-family:Arial,sans-serif;background:#f3f4f6;margin:0;padding:20px;color:#111827}");
+  page += F(".card{max-width:720px;margin:auto;background:#fff;border-radius:14px;padding:24px;box-shadow:0 8px 25px #0002}");
+  page += F("h1{margin-top:0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}");
+  page += F("label{font-weight:600;font-size:14px}input{width:100%;box-sizing:border-box;padding:11px;margin-top:6px;border:1px solid #d1d5db;border-radius:8px}");
+  page += F(".full{grid-column:1/-1}.note{background:#eef2ff;padding:12px;border-radius:8px;margin-bottom:16px}.ok{background:#ecfdf5;padding:12px;border-radius:8px;margin-bottom:16px}");
+  page += F("button{width:100%;padding:13px;background:#111827;color:white;border:0;border-radius:9px;font-weight:700;margin-top:18px}");
+  page += F("small{color:#6b7280}@media(max-width:650px){.grid{grid-template-columns:1fr}}");
+  page += F("</style></head><body><div class='card'>");
+  page += F("<h1>SmartVolt Setup</h1>");
+  page += F("<div class='note'>Isi konfigurasi jaringan dan identitas alat. Password yang dikosongkan akan mempertahankan nilai lama.</div>");
+
+  if (message.length() > 0) {
+    page += "<div class='ok'>" + htmlEscape(message) + "</div>";
+  }
+
+  page += F("<form method='post' action='/save'><div class='grid'>");
+
+  page += F("<div class='full'><label>Nama Wi-Fi (SSID)<input name='ssid' required value='");
+  page += htmlEscape(config.wifiSsid);
+  page += F("'></label></div>");
+
+  page += F("<div class='full'><label>Password Wi-Fi<input type='password' name='wpass' placeholder='Kosongkan untuk mempertahankan password lama'></label></div>");
+
+  page += F("<div><label>Laravel Host/IP<input name='shost' required value='");
+  page += htmlEscape(config.serverHost);
+  page += F("'></label></div>");
+
+  page += F("<div><label>Laravel Port<input type='number' min='1' max='65535' name='sport' required value='");
+  page += String(config.serverPort);
+  page += F("'></label></div>");
+
+  page += F("<div class='full'><label>Device API Key<input type='password' name='apikey' placeholder='Kosongkan untuk mempertahankan API key lama'></label></div>");
+
+  page += F("<div><label>MQTT Host/IP<input name='mhost' required value='");
+  page += htmlEscape(config.mqttHost);
+  page += F("'></label></div>");
+
+  page += F("<div><label>MQTT Port<input type='number' min='1' max='65535' name='mport' required value='");
+  page += String(config.mqttPort);
+  page += F("'></label></div>");
+
+  page += F("<div><label>MQTT Username<input name='muser' value='");
+  page += htmlEscape(config.mqttUsername);
+  page += F("'></label></div>");
+
+  page += F("<div><label>MQTT Password<input type='password' name='mpass' placeholder='Kosongkan untuk mempertahankan password lama'></label></div>");
+
+  page += F("<div><label>ESP Unit ID<input name='espid' required value='");
+  page += htmlEscape(config.espUnitId);
+  page += F("'></label></div>");
+
+  page += F("<div><label>Meter Code<input name='meter' required value='");
+  page += htmlEscape(config.meterCode);
+  page += F("'></label></div>");
+
+  page += F("<div class='full'><label>Password OTA<input type='password' minlength='8' name='otapass' placeholder='Kosongkan untuk mempertahankan password lama'></label><small>Minimal 8 karakter.</small></div>");
+
+  page += F("</div><button type='submit'>Simpan dan Restart</button></form>");
+  page += F("<p><small>Firmware ");
+  page += FIRMWARE_VERSION;
+  page += F(" · Setelah disimpan, hubungkan kembali HP ke jaringan Wi-Fi utama.</small></p>");
+  page += F("</div></body></html>");
+
+  return page;
+}
+
+void handlePortalRoot() {
+  setupWebServer.send(200, "text/html; charset=utf-8", buildConfigurationPage());
+}
+
+void handlePortalSave() {
+  DeviceConfig candidate = config;
+
+  candidate.wifiSsid = setupWebServer.arg("ssid");
+  candidate.wifiSsid.trim();
+
+  String newWifiPassword = setupWebServer.arg("wpass");
+  if (newWifiPassword.length() > 0) {
+    candidate.wifiPassword = newWifiPassword;
+  }
+
+  candidate.serverHost = setupWebServer.arg("shost");
+  candidate.serverHost.trim();
+  candidate.serverPort = parsePortOrDefault(setupWebServer.arg("sport"), config.serverPort);
+
+  String newApiKey = setupWebServer.arg("apikey");
+  if (newApiKey.length() > 0) {
+    candidate.apiKey = newApiKey;
+  }
+
+  candidate.mqttHost = setupWebServer.arg("mhost");
+  candidate.mqttHost.trim();
+  candidate.mqttPort = parsePortOrDefault(setupWebServer.arg("mport"), config.mqttPort);
+  candidate.mqttUsername = setupWebServer.arg("muser");
+  candidate.mqttUsername.trim();
+
+  String newMqttPassword = setupWebServer.arg("mpass");
+  if (newMqttPassword.length() > 0) {
+    candidate.mqttPassword = newMqttPassword;
+  }
+
+  candidate.espUnitId = setupWebServer.arg("espid");
+  candidate.espUnitId.trim();
+  candidate.meterCode = setupWebServer.arg("meter");
+  candidate.meterCode.trim();
+
+  String newOtaPassword = setupWebServer.arg("otapass");
+  if (newOtaPassword.length() > 0) {
+    if (newOtaPassword.length() < 8) {
+      setupWebServer.send(400, "text/html; charset=utf-8", buildConfigurationPage("Password OTA minimal 8 karakter."));
+      return;
+    }
+    candidate.otaPassword = newOtaPassword;
+  }
+
+  if (!isValidConfig(candidate)) {
+    setupWebServer.send(400, "text/html; charset=utf-8", buildConfigurationPage("Konfigurasi belum lengkap atau tidak valid."));
+    return;
+  }
+
+  config = candidate;
+  saveConfig();
+
+  setupWebServer.send(
+    200,
+    "text/html; charset=utf-8",
+    "<!doctype html><html lang='id'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<body style='font-family:Arial;padding:30px'><h2>Konfigurasi tersimpan</h2>"
+    "<p>SmartVolt akan restart dan mencoba terhubung ke jaringan utama.</p></body></html>"
+  );
+
+  delay(1200);
+  ESP.restart();
+}
+
+void handlePortalNotFound() {
+  setupWebServer.sendHeader("Location", String("http://") + WiFi.softAPIP().toString(), true);
+  setupWebServer.send(302, "text/plain", "");
+}
+
+void startConfigurationPortal() {
+  allRelaysOff();
+
+  String suffix = chipSuffix().substring(4);
+  String apSsid = String("SmartVolt-Setup-") + suffix;
+  String apPassword = String("SV") + suffix + "Setup";
+
+  WiFi.disconnect(true, true);
+  delay(300);
+  WiFi.mode(WIFI_AP);
+
+  bool apStarted = WiFi.softAP(apSsid.c_str(), apPassword.c_str());
+
+  Serial.println();
+  Serial.println("======================================");
+  Serial.println("[CONFIG] PORTAL KONFIGURASI AKTIF");
+  Serial.print("[CONFIG] Hotspot : ");
+  Serial.println(apSsid);
+  Serial.print("[CONFIG] Password: ");
+  Serial.println(apPassword);
+  Serial.print("[CONFIG] Alamat  : http://");
+  Serial.println(WiFi.softAPIP());
+  Serial.println("======================================");
+
+  if (!apStarted) {
+    Serial.println("[CONFIG] Gagal membuat hotspot. Restart dalam 5 detik.");
+    delay(5000);
+    ESP.restart();
+  }
+
+  dnsServer.start(53, "*", WiFi.softAPIP());
+
+  setupWebServer.on("/", HTTP_GET, handlePortalRoot);
+  setupWebServer.on("/save", HTTP_POST, handlePortalSave);
+  setupWebServer.onNotFound(handlePortalNotFound);
+  setupWebServer.begin();
+
+  while (true) {
+    dnsServer.processNextRequest();
+    setupWebServer.handleClient();
+    delay(2);
+  }
+}
+
+bool setupButtonHeldAtBoot() {
+  pinMode(SETUP_BUTTON_PIN, INPUT_PULLUP);
+
+  if (digitalRead(SETUP_BUTTON_PIN) != LOW) {
+    return false;
+  }
+
+  Serial.println("[CONFIG] Tombol BOOT ditekan. Tahan untuk membuka portal...");
+  unsigned long startedAt = millis();
+
+  while (digitalRead(SETUP_BUTTON_PIN) == LOW) {
+    if (millis() - startedAt >= SETUP_BUTTON_BOOT_HOLD_MS) {
+      Serial.println("[CONFIG] Portal konfigurasi diminta melalui tombol BOOT.");
+      return true;
+    }
+    delay(20);
+  }
+
+  return false;
+}
+
+void handleSetupButtonRuntime() {
+  bool pressed = digitalRead(SETUP_BUTTON_PIN) == LOW;
+
+  if (pressed) {
+    if (setupButtonPressedAt == 0) {
+      setupButtonPressedAt = millis();
+      setupButtonActionTriggered = false;
+      Serial.println("[CONFIG] Tombol BOOT ditekan. Tahan 8 detik untuk membuka portal.");
+    }
+
+    if (!setupButtonActionTriggered && millis() - setupButtonPressedAt >= SETUP_BUTTON_HOLD_MS) {
+      setupButtonActionTriggered = true;
+      allRelaysOff();
+      requestConfigurationPortal();
+    }
+  } else {
+    setupButtonPressedAt = 0;
+    setupButtonActionTriggered = false;
+  }
+}
+
+// ============================================================================
+// WATCHDOG
+// ============================================================================
+void initializeWatchdog() {
+#if ESP_IDF_VERSION_MAJOR >= 5
+  esp_task_wdt_config_t watchdogConfig = {};
+  watchdogConfig.timeout_ms = WATCHDOG_TIMEOUT_SECONDS * 1000UL;
+  watchdogConfig.idle_core_mask = (1U << portNUM_PROCESSORS) - 1U;
+  watchdogConfig.trigger_panic = true;
+
+  esp_err_t initResult = esp_task_wdt_init(&watchdogConfig);
+
+  if (initResult == ESP_ERR_INVALID_STATE) {
+    // Arduino core tertentu sudah mengaktifkan TWDT. Terapkan konfigurasi kita.
+    esp_err_t reconfigureResult = esp_task_wdt_reconfigure(&watchdogConfig);
+    if (reconfigureResult != ESP_OK) {
+      Serial.print("[WATCHDOG] Gagal reconfigure. Code: ");
+      Serial.println(reconfigureResult);
+      return;
+    }
+  } else if (initResult != ESP_OK) {
+    Serial.print("[WATCHDOG] Gagal init. Code: ");
+    Serial.println(initResult);
+    return;
+  }
+
+  esp_err_t statusResult = esp_task_wdt_status(NULL);
+  if (statusResult == ESP_OK) {
+    watchdogInitialized = true;
+    Serial.println("[WATCHDOG] Loop task sudah terdaftar, timeout 30 detik.");
+    return;
+  }
+
+  esp_err_t addResult = esp_task_wdt_add(NULL);
+#else
+  esp_err_t initResult = esp_task_wdt_init(WATCHDOG_TIMEOUT_SECONDS, true);
+  if (initResult != ESP_OK && initResult != ESP_ERR_INVALID_STATE) {
+    Serial.print("[WATCHDOG] Gagal init. Code: ");
+    Serial.println(initResult);
+    return;
+  }
+
+  esp_err_t addResult = esp_task_wdt_add(NULL);
+#endif
+
+  if (addResult == ESP_OK) {
+    watchdogInitialized = true;
+    Serial.println("[WATCHDOG] Aktif, timeout 30 detik.");
+  } else {
+    Serial.print("[WATCHDOG] Gagal menambahkan loop task. Code: ");
+    Serial.println(addResult);
+  }
+}
+
+void feedWatchdog() {
+  if (watchdogInitialized) {
+    esp_task_wdt_reset();
+  }
+}
+
+// ============================================================================
+// OTA
+// ============================================================================
+void initializeOtaIfNeeded() {
+  if (otaInitialized || WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+
+  if (config.otaPassword.length() < 8) {
+    Serial.println("[OTA] Dinonaktifkan: password OTA belum memenuhi minimal 8 karakter.");
+    return;
+  }
+
+  String hostname = deviceHostname();
+  ArduinoOTA.setHostname(hostname.c_str());
+  ArduinoOTA.setPassword(config.otaPassword.c_str());
+
+  ArduinoOTA.onStart([]() {
+    Serial.println("[OTA] Update dimulai. Semua relay dimatikan untuk keamanan.");
+    allRelaysOff();
+  });
+
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\n[OTA] Update selesai.");
+  });
+
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    unsigned int percent = total > 0 ? (progress * 100U) / total : 0;
+    Serial.printf("[OTA] Progress: %u%%\r", percent);
+    feedWatchdog();
+  });
+
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("[OTA] Error[%u]\n", error);
+  });
+
+  ArduinoOTA.begin();
+  otaInitialized = true;
+
+  Serial.print("[OTA] Aktif dengan hostname: ");
+  Serial.println(hostname);
+}
+
+// ============================================================================
+// WI-FI
+// ============================================================================
+void printNetworkInformation() {
+  Serial.print("[WIFI] IP ESP32 : ");
+  Serial.println(WiFi.localIP());
+  Serial.print("[WIFI] Gateway  : ");
+  Serial.println(WiFi.gatewayIP());
+  Serial.print("[WIFI] RSSI     : ");
+  Serial.print(WiFi.RSSI());
+  Serial.println(" dBm");
+}
+
+void requestImmediateTelemetry() {
+  telemetryImmediate = true;
+}
+
+void onWiFiConnected() {
+  Serial.println("[WIFI] Terhubung.");
+  printNetworkInformation();
+
+  wifiWasConnected = true;
+  lastMqttReconnectMillis = 0;
+  telemetryFailureCount = 0;
+  requestImmediateTelemetry();
+
+  initializeOtaIfNeeded();
+}
+
+void onWiFiDisconnected() {
+  if (wifiWasConnected) {
+    Serial.println("[WIFI] Koneksi terputus. Reconnect otomatis dijalankan.");
+  }
+
+  wifiWasConnected = false;
+}
+
+bool connectWiFiAtBoot() {
+  if (config.wifiSsid.length() == 0) {
+    return false;
+  }
+
+  WiFi.mode(WIFI_STA);
+  WiFi.persistent(false);
+  WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
+
+  String hostname = deviceHostname();
+  WiFi.setHostname(hostname.c_str());
+
+  Serial.println();
+  Serial.print("[WIFI] Menghubungkan ke SSID: ");
+  Serial.println(config.wifiSsid);
+
+  WiFi.begin(config.wifiSsid.c_str(), config.wifiPassword.c_str());
+
+  unsigned long startedAt = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - startedAt < WIFI_CONNECT_TIMEOUT_MS) {
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.println();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    onWiFiConnected();
+    return true;
+  }
+
+  Serial.println("[WIFI] Gagal terhubung saat boot.");
+  return false;
+}
+
+void maintainWiFi() {
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!wifiWasConnected) {
+      onWiFiConnected();
+    }
+    return;
+  }
+
+  onWiFiDisconnected();
+
+  unsigned long now = millis();
+  if (lastWiFiReconnectMillis != 0 && now - lastWiFiReconnectMillis < WIFI_RECONNECT_INTERVAL_MS) {
+    return;
+  }
+
+  lastWiFiReconnectMillis = now;
+  Serial.println("[WIFI] Mencoba reconnect...");
+
+  WiFi.disconnect(false, false);
+  WiFi.begin(config.wifiSsid.c_str(), config.wifiPassword.c_str());
+}
+
+// ============================================================================
+// PZEM
+// ============================================================================
+bool readPzem(PzemReading& reading, bool verbose) {
+  reading.voltage = pzem.voltage();
+  reading.current = pzem.current();
+  reading.power = pzem.power();
+  reading.energy = pzem.energy();
+  reading.frequency = pzem.frequency();
+  reading.powerFactor = pzem.pf();
+  reading.readAtMillis = millis();
+
+  reading.valid = !isnan(reading.voltage) &&
+                  !isnan(reading.current) &&
+                  !isnan(reading.power);
+
+  if (!reading.valid) {
+    if (verbose) {
+      Serial.println("[PZEM] Data belum valid.");
+      Serial.println("[PZEM] Periksa TX/RX, VCC, GND, sumber AC, dan CT clamp.");
+    }
+    return false;
+  }
+
+  if (isnan(reading.energy)) {
+    reading.energy = 0.0F;
+  }
+
+  if (verbose) {
+    Serial.println();
+    Serial.println("[PZEM] Data terbaca:");
+    Serial.printf("[PZEM] Voltage      : %.2f V\n", reading.voltage);
+    Serial.printf("[PZEM] Current      : %.3f A\n", reading.current);
+    Serial.printf("[PZEM] Power        : %.2f W\n", reading.power);
+    Serial.printf("[PZEM] Energy       : %.3f kWh\n", reading.energy);
+
+    if (!isnan(reading.frequency)) {
+      Serial.printf("[PZEM] Frequency    : %.2f Hz\n", reading.frequency);
+    }
+
+    if (!isnan(reading.powerFactor)) {
+      Serial.printf("[PZEM] Power Factor : %.2f\n", reading.powerFactor);
     }
   }
 
-  return nullptr;
+  return true;
 }
 
-void applyRelayState(RelayChannel& relay, bool state) {
-  relay.state = state;
+void updatePzemReading(bool force = false, bool verbose = false) {
+  unsigned long now = millis();
 
-  int level = relayOutputLevel(state);
-  digitalWrite(relay.pin, level);
-
-  Serial.print("Relay Channel ");
-  Serial.print(relay.relayCode);
-  Serial.print(" GPIO");
-  Serial.print(relay.pin);
-  Serial.print(" -> ");
-  Serial.print(state ? "ON" : "OFF");
-  Serial.print(" | Output ");
-  Serial.println(levelText(level));
-}
-
-void setupRelays() {
-  Serial.println();
-  Serial.println("Menyiapkan relay...");
-
-  Serial.print("Mode relay: ");
-  Serial.println(RELAY_ACTIVE_LOW ? "ACTIVE LOW" : "ACTIVE HIGH");
-
-  Serial.print("Level ON  : ");
-  Serial.println(levelText(relayOutputLevel(true)));
-
-  Serial.print("Level OFF : ");
-  Serial.println(levelText(relayOutputLevel(false)));
-
-  for (uint8_t i = 0; i < RELAY_COUNT; i++) {
-    /*
-     * Set OFF sebelum pinMode OUTPUT.
-     * Ini membantu mencegah relay menyala sesaat saat boot.
-     */
-    digitalWrite(relays[i].pin, relayOutputLevel(false));
-    pinMode(relays[i].pin, OUTPUT);
-    digitalWrite(relays[i].pin, relayOutputLevel(false));
-
-    relays[i].state = false;
-    relays[i].deviceId = 0;
-
-    Serial.print("Relay ");
-    Serial.print(relays[i].relayCode);
-    Serial.print(" disiapkan OFF di GPIO");
-    Serial.println(relays[i].pin);
+  if (!force && lastPzemReadMillis != 0 && now - lastPzemReadMillis < PZEM_READ_INTERVAL_MS) {
+    return;
   }
 
-  Serial.println("Semua relay dalam kondisi OFF.");
+  lastPzemReadMillis = now;
+  bool previousValid = latestPzem.valid;
+  bool currentValid = readPzem(latestPzem, verbose);
+
+  if (currentValid != previousValid) {
+    Serial.print("[PZEM] Status berubah menjadi: ");
+    Serial.println(currentValid ? "VALID" : "TIDAK VALID");
+
+    requestImmediateTelemetry();
+    lastHeartbeatMillis = 0;
+  }
 }
 
-bool parseRelayState(JsonVariantConst value, bool& state) {
+// ============================================================================
+// HTTP TELEMETRY
+// ============================================================================
+unsigned long retryDelayForFailure(uint8_t failureCount) {
+  if (failureCount <= 1) return 5000UL;
+  if (failureCount == 2) return 10000UL;
+  if (failureCount == 3) return 20000UL;
+  if (failureCount == 4) return 30000UL;
+  return 60000UL;
+}
+
+bool sendRawHttpPost(const String& path, const String& payload, int& httpCode) {
+  httpCode = 0;
+
+  if (WiFi.status() != WL_CONNECTED) {
+    return false;
+  }
+
+  WiFiClient httpClient;
+  httpClient.setTimeout(HTTP_RESPONSE_TIMEOUT_MS);
+
+  Serial.print("[HTTP] Connect ke ");
+  Serial.print(config.serverHost);
+  Serial.print(":");
+  Serial.println(config.serverPort);
+
+  unsigned long connectStartedAt = millis();
+
+  if (!httpClient.connect(config.serverHost.c_str(), config.serverPort)) {
+    Serial.print("[HTTP] Gagal membuka koneksi TCP setelah ");
+    Serial.print(millis() - connectStartedAt);
+    Serial.println(" ms.");
+    return false;
+  }
+
+  httpClient.print("POST ");
+  httpClient.print(path);
+  httpClient.print(" HTTP/1.0\r\n");
+
+  httpClient.print("Host: ");
+  httpClient.print(config.serverHost);
+  httpClient.print(":");
+  httpClient.print(config.serverPort);
+  httpClient.print("\r\n");
+
+  httpClient.print("Content-Type: application/json\r\n");
+  httpClient.print("Accept: application/json\r\n");
+  httpClient.print("X-API-KEY: ");
+  httpClient.print(config.apiKey);
+  httpClient.print("\r\n");
+  httpClient.print("Content-Length: ");
+  httpClient.print(payload.length());
+  httpClient.print("\r\n");
+  httpClient.print("Connection: close\r\n\r\n");
+  httpClient.print(payload);
+
+  unsigned long responseStartedAt = millis();
+
+  while (!httpClient.available()) {
+    if (!httpClient.connected()) {
+      Serial.println("[HTTP] Server menutup koneksi sebelum memberi respons.");
+      httpClient.stop();
+      return false;
+    }
+
+    if (millis() - responseStartedAt > HTTP_RESPONSE_TIMEOUT_MS) {
+      Serial.println("[HTTP] Timeout menunggu respons Laravel.");
+      httpClient.stop();
+      return false;
+    }
+
+    if (mqttClient.connected()) {
+      mqttClient.loop();
+    }
+
+    if (otaInitialized) {
+      ArduinoOTA.handle();
+    }
+
+    feedWatchdog();
+    delay(5);
+  }
+
+  String statusLine = httpClient.readStringUntil('\n');
+  statusLine.trim();
+
+  Serial.print("[HTTP] Response: ");
+  Serial.println(statusLine);
+
+  int firstSpace = statusLine.indexOf(' ');
+  if (firstSpace > 0 && statusLine.length() >= firstSpace + 4) {
+    httpCode = statusLine.substring(firstSpace + 1, firstSpace + 4).toInt();
+  }
+
+  while (httpClient.connected() || httpClient.available()) {
+    while (httpClient.available()) {
+      httpClient.read();
+    }
+
+    if (millis() - responseStartedAt > HTTP_RESPONSE_TIMEOUT_MS) {
+      break;
+    }
+
+    feedWatchdog();
+    delay(1);
+  }
+
+  httpClient.stop();
+  return true;
+}
+
+TelemetryResult sendTelemetry() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[HTTP] Telemetry batal: Wi-Fi belum terhubung.");
+    return TelemetryResult::NetworkError;
+  }
+
+  updatePzemReading(true, false);
+
+  if (!latestPzem.valid) {
+    Serial.println("[HTTP] Telemetry listrik tidak dikirim karena PZEM belum valid.");
+    Serial.println("[HTTP] ESP32 tetap dilaporkan online melalui heartbeat MQTT.");
+    return TelemetryResult::SensorInvalid;
+  }
+
+  StaticJsonDocument<512> document;
+  document["esp_unit_id"] = config.espUnitId;
+  document["meter_code"] = config.meterCode;
+  document["voltage"] = latestPzem.voltage;
+  document["current"] = latestPzem.current;
+  document["power"] = latestPzem.power;
+  document["energy"] = latestPzem.energy;
+
+  if (!isnan(latestPzem.frequency)) {
+    document["frequency"] = latestPzem.frequency;
+  }
+
+  if (!isnan(latestPzem.powerFactor)) {
+    document["power_factor"] = latestPzem.powerFactor;
+  }
+
+  String payload;
+  serializeJson(document, payload);
+
+  Serial.println();
+  Serial.println("[HTTP] Kirim telemetry PZEM ke Laravel");
+  Serial.print("[HTTP] Payload: ");
+  Serial.println(payload);
+
+  int httpCode = 0;
+  bool requestCompleted = sendRawHttpPost("/api/iot/telemetry", payload, httpCode);
+
+  if (!requestCompleted) {
+    return TelemetryResult::NetworkError;
+  }
+
+  if (httpCode >= 200 && httpCode < 300) {
+    Serial.println("[HTTP] Telemetry berhasil dikirim.");
+    return TelemetryResult::Success;
+  }
+
+  Serial.print("[HTTP] Telemetry ditolak. HTTP Code: ");
+  Serial.println(httpCode);
+  return TelemetryResult::NetworkError;
+}
+
+void maintainTelemetry() {
+  if (WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+
+  unsigned long now = millis();
+
+  bool readyByTime = lastTelemetryAttemptMillis == 0 ||
+                     now - lastTelemetryAttemptMillis >= telemetryWaitIntervalMillis;
+
+  if (!telemetryImmediate && !readyByTime) {
+    return;
+  }
+
+  if (!readyByTime && telemetryImmediate) {
+    // Permintaan immediate boleh melewati interval tunggu sebelumnya.
+  }
+
+  telemetryImmediate = false;
+  lastTelemetryAttemptMillis = now;
+
+  TelemetryResult result = sendTelemetry();
+
+  if (result == TelemetryResult::Success) {
+    lastTelemetrySuccessMillis = now;
+    telemetryFailureCount = 0;
+    telemetryWaitIntervalMillis = TELEMETRY_INTERVAL_MS;
+
+    Serial.println("[HTTP] Jadwal berikutnya: 1 menit lagi.");
+    return;
+  }
+
+  if (result == TelemetryResult::SensorInvalid) {
+    telemetryFailureCount = 0;
+    telemetryWaitIntervalMillis = SENSOR_RETRY_INTERVAL_MS;
+
+    Serial.println("[HTTP] PZEM akan diperiksa kembali dalam 10 detik.");
+    return;
+  }
+
+  if (telemetryFailureCount < 250) {
+    telemetryFailureCount++;
+  }
+
+  telemetryWaitIntervalMillis = retryDelayForFailure(telemetryFailureCount);
+
+  Serial.print("[HTTP] Gagal. Retry dalam ");
+  Serial.print(telemetryWaitIntervalMillis / 1000UL);
+  Serial.println(" detik.");
+}
+
+// ============================================================================
+// MQTT STATUS, ACK, DAN COMMAND
+// ============================================================================
+String buildStatusPayload(bool online) {
+  StaticJsonDocument<768> document;
+
+  document["esp_unit_id"] = config.espUnitId;
+  document["online"] = online;
+  document["wifi_connected"] = WiFi.status() == WL_CONNECTED;
+  document["mqtt_connected"] = mqttClient.connected();
+  document["pzem_valid"] = latestPzem.valid;
+  document["relay_1"] = relay1State;
+  document["relay_2"] = relay2State;
+  document["firmware_version"] = FIRMWARE_VERSION;
+  document["uptime_seconds"] = millis() / 1000UL;
+
+  if (WiFi.status() == WL_CONNECTED) {
+    document["ip_address"] = WiFi.localIP().toString();
+    document["wifi_rssi"] = WiFi.RSSI();
+  }
+
+  if (lastTelemetrySuccessMillis > 0) {
+    document["last_telemetry_success_ms"] = lastTelemetrySuccessMillis;
+  }
+
+  String payload;
+  serializeJson(document, payload);
+  return payload;
+}
+
+bool publishStatus(bool online = true) {
+  if (!mqttClient.connected()) {
+    return false;
+  }
+
+  String payload = buildStatusPayload(online);
+  String topic = statusTopic();
+
+  bool published = mqttClient.publish(topic.c_str(), payload.c_str(), true);
+
+  Serial.print("[MQTT] Publish status retained -> ");
+  Serial.println(published ? "OK" : "GAGAL");
+
+  return published;
+}
+
+void publishAck(
+  const String& commandId,
+  const String& relayCode,
+  bool requestedState,
+  bool actualState,
+  bool success,
+  const String& message
+) {
+  if (!mqttClient.connected()) {
+    Serial.println("[MQTT] ACK tidak dapat dikirim karena MQTT offline.");
+    return;
+  }
+
+  StaticJsonDocument<512> document;
+  document["command_id"] = commandId;
+  document["esp_unit_id"] = config.espUnitId;
+  document["relay_code"] = relayCode;
+  document["requested_state"] = requestedState;
+  document["actual_state"] = actualState;
+  document["success"] = success;
+  document["message"] = message;
+  document["firmware_version"] = FIRMWARE_VERSION;
+
+  String payload;
+  serializeJson(document, payload);
+
+  String topic = ackTopic();
+  bool published = mqttClient.publish(topic.c_str(), payload.c_str(), false);
+
+  Serial.print("[MQTT] ACK -> ");
+  Serial.println(published ? "OK" : "GAGAL");
+  Serial.print("[MQTT] ACK payload: ");
+  Serial.println(payload);
+}
+
+bool tryParseState(JsonVariantConst value, bool& parsedState) {
   if (value.is<bool>()) {
-    state = value.as<bool>();
+    parsedState = value.as<bool>();
     return true;
   }
 
   if (value.is<int>()) {
-    state = value.as<int>() == 1;
-    return true;
+    int numericValue = value.as<int>();
+    if (numericValue == 0 || numericValue == 1) {
+      parsedState = numericValue == 1;
+      return true;
+    }
+    return false;
   }
 
   if (value.is<const char*>()) {
-    String text = String(value.as<const char*>());
+    String text = value.as<const char*>();
     text.trim();
     text.toLowerCase();
 
-    if (
-      text == "on" ||
-      text == "nyala" ||
-      text == "true" ||
-      text == "1" ||
-      text == "aktif" ||
-      text == "active"
-    ) {
-      state = true;
+    if (text == "true" || text == "on" || text == "1") {
+      parsedState = true;
       return true;
     }
 
-    if (
-      text == "off" ||
-      text == "mati" ||
-      text == "false" ||
-      text == "0" ||
-      text == "nonaktif" ||
-      text == "inactive"
-    ) {
-      state = false;
+    if (text == "false" || text == "off" || text == "0") {
+      parsedState = false;
       return true;
     }
   }
@@ -348,378 +1255,178 @@ bool parseRelayState(JsonVariantConst value, bool& state) {
   return false;
 }
 
+bool isCommandDuplicate(const String& commandId) {
+  for (size_t i = 0; i < COMMAND_HISTORY_SIZE; i++) {
+    if (commandHistory[i] == commandId) {
+      return true;
+    }
+  }
+  return false;
+}
 
-/*
-|--------------------------------------------------------------------------
-| WIFI
-|--------------------------------------------------------------------------
-*/
+void rememberCommand(const String& commandId) {
+  commandHistory[commandHistoryIndex] = commandId;
+  commandHistoryIndex = (commandHistoryIndex + 1) % COMMAND_HISTORY_SIZE;
+}
 
-void connectWiFi() {
-  if (WiFi.status() == WL_CONNECTED) {
+bool currentRelayState(const String& relayCode, bool& state) {
+  if (relayCode == "1") {
+    state = relay1State;
+    return true;
+  }
+
+  if (relayCode == "2") {
+    state = relay2State;
+    return true;
+  }
+
+  return false;
+}
+
+void processMqttCommand(const String& message) {
+  StaticJsonDocument<1024> document;
+  DeserializationError error = deserializeJson(document, message);
+
+  if (error || !document.is<JsonObject>()) {
+    Serial.print("[MQTT] JSON command tidak valid: ");
+    Serial.println(error.c_str());
     return;
   }
 
-  Serial.println();
-  Serial.print("Menghubungkan WiFi ke ");
-  Serial.println(WIFI_SSID);
+  JsonObjectConst object = document.as<JsonObjectConst>();
 
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  String commandId;
+  String relayCode;
+  bool requestedState = false;
 
-  unsigned long startAttempt = millis();
-
-  while (WiFi.status() != WL_CONNECTED && millis() - startAttempt < 20000) {
-    delay(500);
-    Serial.print(".");
+  if (!object["command_id"].is<const char*>()) {
+    Serial.println("[MQTT] Command ditolak: command_id wajib berupa teks.");
+    return;
   }
 
-  Serial.println();
+  commandId = object["command_id"].as<const char*>();
+  commandId.trim();
 
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("WiFi terhubung. IP: ");
-    Serial.println(WiFi.localIP());
+  if (commandId.length() == 0) {
+    Serial.println("[MQTT] Command ditolak: command_id kosong.");
+    return;
+  }
+
+  if (object["relay_code"].is<const char*>()) {
+    relayCode = object["relay_code"].as<const char*>();
+  } else if (object["relay_code"].is<int>()) {
+    relayCode = String(object["relay_code"].as<int>());
   } else {
-    Serial.println("WiFi belum terhubung. Akan dicoba ulang.");
-  }
-}
-
-void maintainWiFi() {
-  if (WiFi.status() == WL_CONNECTED) {
+    publishAck(commandId, "", false, false, false, "relay_code_required");
+    Serial.println("[MQTT] Command ditolak: relay_code tidak tersedia.");
     return;
   }
 
-  unsigned long now = millis();
+  relayCode.trim();
 
-  if (now - lastWifiReconnectMs >= WIFI_RECONNECT_INTERVAL_MS) {
-    lastWifiReconnectMs = now;
-    connectWiFi();
-  }
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| HTTP HELPER
-|--------------------------------------------------------------------------
-*/
-
-void addSmartVoltHeaders(HTTPClient& http) {
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("Accept", "application/json");
-  http.addHeader("X-API-KEY", IOT_API_KEY);
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| TELEMETRY
-|--------------------------------------------------------------------------
-*/
-
-void sendTelemetry() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Telemetry batal: WiFi belum terhubung.");
+  if (relayCode != "1" && relayCode != "2") {
+    publishAck(commandId, relayCode, false, false, false, "unknown_relay_code");
+    Serial.println("[MQTT] Command ditolak: relay_code tidak dikenal.");
     return;
   }
 
-  float voltage = pzem.voltage();
-  float current = pzem.current();
-  float power = pzem.power();
-  float energy = pzem.energy();
-  float frequency = pzem.frequency();
-  float powerFactor = pzem.pf();
+  if (object["state"].isNull() || !tryParseState(object["state"], requestedState)) {
+    bool actualState = false;
+    currentRelayState(relayCode, actualState);
+    publishAck(commandId, relayCode, false, actualState, false, "invalid_state");
+    Serial.println("[MQTT] Command ditolak: state tidak valid.");
+    return;
+  }
 
-  if (
-    !isValidNumber(voltage) ||
-    !isValidNumber(current) ||
-    !isValidNumber(power) ||
-    !isValidNumber(energy)
-  ) {
-    if (!TEST_MODE_WITHOUT_PZEM) {
-      Serial.println("Data PZEM belum valid. Telemetry tidak dikirim.");
+  if (!object["esp_unit_id"].isNull()) {
+    String targetEsp = object["esp_unit_id"].as<String>();
+    targetEsp.trim();
+
+    if (targetEsp.length() > 0 && targetEsp != config.espUnitId) {
+      bool actualState = false;
+      currentRelayState(relayCode, actualState);
+      publishAck(commandId, relayCode, requestedState, actualState, false, "wrong_esp_unit_id");
+      Serial.println("[MQTT] Command ditolak: target ESP tidak sesuai.");
       return;
     }
-
-    Serial.println("PZEM belum terbaca. Mode testing aktif, kirim data dummy.");
-
-    voltage = 220.0;
-    current = 0.0;
-    power = 0.0;
-    energy = 0.0;
-    frequency = 50.0;
-    powerFactor = 1.0;
   }
 
-  telemetryCounter++;
-
-  String telemetryId =
-    String(ESP_UNIT_ID) +
-    "-" +
-    getChipId() +
-    "-" +
-    String(millis()) +
-    "-" +
-    String(telemetryCounter);
-
-  StaticJsonDocument<512> doc;
-
-  doc["esp_unit_id"] = ESP_UNIT_ID;
-  doc["esp32_device_id"] = ESP_UNIT_ID;
-  doc["meter_code"] = METER_CODE;
-  doc["telemetry_id"] = telemetryId;
-
-  doc["voltage"] = voltage;
-  doc["current"] = current;
-  doc["power"] = power;
-  doc["energy"] = energy;
-  doc["frequency"] = frequency;
-  doc["power_factor"] = powerFactor;
-
-  String body;
-  serializeJson(doc, body);
-
-  HTTPClient http;
-  String url = apiUrl("/api/iot/telemetry");
-
-  http.begin(url);
-  http.setTimeout(5000);
-  addSmartVoltHeaders(http);
-
-  int httpCode = http.POST(body);
-  String response = http.getString();
-
-  Serial.println();
-  Serial.println("Kirim telemetry:");
-  Serial.println(body);
-  Serial.print("HTTP Code: ");
-  Serial.println(httpCode);
-  Serial.print("Response: ");
-  Serial.println(response);
-
-  http.end();
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| ACK KE LARAVEL
-|--------------------------------------------------------------------------
-*/
-
-void sendRelayAck(
-  const String& commandId,
-  int deviceId,
-  const String& relayCode,
-  bool state,
-  bool applied,
-  const String& message
-) {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("ACK batal: WiFi belum terhubung.");
+  if (isCommandDuplicate(commandId)) {
+    bool actualState = false;
+    currentRelayState(relayCode, actualState);
+    publishAck(commandId, relayCode, requestedState, actualState, actualState == requestedState, "duplicate_ignored");
+    Serial.println("[MQTT] Command duplikat diabaikan.");
     return;
   }
 
-  StaticJsonDocument<512> doc;
+  bool actualState = false;
+  bool applied = setRelayByCode(relayCode, requestedState, actualState);
 
-  if (commandId.length() > 0) {
-    doc["command_id"] = commandId;
-  }
+  rememberCommand(commandId);
 
-  if (deviceId > 0) {
-    doc["device_id"] = deviceId;
-  }
+  publishAck(
+    commandId,
+    relayCode,
+    requestedState,
+    actualState,
+    applied,
+    applied ? "applied" : "relay_verification_failed"
+  );
 
-  doc["relay_code"] = relayCode;
-  doc["state"] = state;
-  doc["status"] = state ? "ON" : "OFF";
-  doc["applied"] = applied;
-  doc["message"] = message;
-
-  String body;
-  serializeJson(doc, body);
-
-  HTTPClient http;
-  String url = apiUrl(String("/api/iot/esp/") + ESP_UNIT_ID + "/ack");
-
-  http.begin(url);
-  http.setTimeout(5000);
-  addSmartVoltHeaders(http);
-
-  int httpCode = http.POST(body);
-  String response = http.getString();
-
-  Serial.println();
-  Serial.println("Kirim ACK:");
-  Serial.println(body);
-  Serial.print("HTTP Code: ");
-  Serial.println(httpCode);
-  Serial.print("Response: ");
-  Serial.println(response);
-
-  http.end();
+  publishStatus(true);
 }
 
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  Serial.println();
+  Serial.println("======================================");
+  Serial.println("[MQTT] Pesan diterima");
+  Serial.print("[MQTT] Topic: ");
+  Serial.println(topic);
 
-/*
-|--------------------------------------------------------------------------
-| MQTT COMMAND
-|--------------------------------------------------------------------------
-*/
-
-void handleMqttCommand(char* topic, byte* payload, unsigned int length) {
-  String topicText = String(topic);
+  if (length == 0 || length > 1024) {
+    Serial.println("[MQTT] Payload kosong atau terlalu besar. Ditolak.");
+    Serial.println("======================================");
+    return;
+  }
 
   String message;
   message.reserve(length + 1);
 
   for (unsigned int i = 0; i < length; i++) {
-    message += (char) payload[i];
+    message += static_cast<char>(payload[i]);
   }
 
-  Serial.println();
-  Serial.print("MQTT topic diterima: ");
-  Serial.println(topicText);
-  Serial.print("MQTT payload: ");
+  Serial.print("[MQTT] Payload: ");
   Serial.println(message);
 
-  if (topicText != commandTopic()) {
-    Serial.println("Topic tidak sesuai. Command diabaikan.");
-    return;
-  }
-
-  StaticJsonDocument<768> doc;
-  DeserializationError error = deserializeJson(doc, message);
-
-  if (error) {
-    Serial.print("JSON command tidak valid: ");
-    Serial.println(error.c_str());
-    return;
-  }
-
-  String relayCode = String(doc["relay_code"] | "");
-  relayCode.trim();
-
-  String commandId = String(doc["command_id"] | "");
-  commandId.trim();
-
-  int deviceId = doc["device_id"] | 0;
-
-  if (relayCode.length() == 0) {
-    Serial.println("Command ditolak: relay_code kosong.");
-    sendRelayAck(commandId, deviceId, relayCode, false, false, "Relay code kosong.");
-    return;
-  }
-
-  if (commandId.length() > 0 && commandId == lastCommandId) {
-    Serial.println("Command duplikat diabaikan.");
-    return;
-  }
-
-  bool targetState = false;
-
-  bool stateValid =
-    parseRelayState(doc["state"], targetState) ||
-    parseRelayState(doc["relay"], targetState) ||
-    parseRelayState(doc["status"], targetState);
-
-  if (!stateValid) {
-    Serial.println("Command ditolak: state tidak valid.");
-    sendRelayAck(commandId, deviceId, relayCode, false, false, "State relay tidak valid.");
-    return;
-  }
-
-  RelayChannel* relay = findRelayByCode(relayCode);
-
-  if (relay == nullptr) {
-    Serial.print("Command ditolak: relay_code tidak dikenal: ");
-    Serial.println(relayCode);
-
-    sendRelayAck(commandId, deviceId, relayCode, targetState, false, "Relay tidak ditemukan di ESP32.");
-    return;
-  }
-
-  relay->deviceId = deviceId;
-  applyRelayState(*relay, targetState);
-
-  if (commandId.length() > 0) {
-    lastCommandId = commandId;
-  }
-
-  sendRelayAck(
-    commandId,
-    deviceId,
-    relayCode,
-    targetState,
-    true,
-    targetState ? "Perangkat berhasil dinyalakan." : "Perangkat berhasil dimatikan."
-  );
+  processMqttCommand(message);
+  Serial.println("======================================");
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| MQTT CONNECT
-|--------------------------------------------------------------------------
-*/
-
-void connectMqtt() {
-  if (mqttClient.connected()) {
-    return;
-  }
-
-  if (WiFi.status() != WL_CONNECTED) {
-    return;
-  }
-
-  String clientId = String("smartvolt-esp32-") + ESP_UNIT_ID + "-" + getChipId();
-
-  String onlinePayload = String("{\"esp_unit_id\":\"") + ESP_UNIT_ID + "\",\"online\":true}";
-  String offlinePayload = String("{\"esp_unit_id\":\"") + ESP_UNIT_ID + "\",\"online\":false}";
-
-  Serial.println();
-  Serial.print("Menghubungkan MQTT ke ");
-  Serial.print(MQTT_HOST);
-  Serial.print(":");
-  Serial.println(MQTT_PORT);
-
-  bool connected = false;
-
-  if (strlen(MQTT_USERNAME) > 0) {
-    connected = mqttClient.connect(
+bool connectMqttWithConfiguredCredentials(
+  const String& clientId,
+  const String& willTopic,
+  const String& willPayload
+) {
+  if (config.mqttUsername.length() > 0) {
+    return mqttClient.connect(
       clientId.c_str(),
-      MQTT_USERNAME,
-      MQTT_PASSWORD,
-      statusTopic().c_str(),
-      0,
+      config.mqttUsername.c_str(),
+      config.mqttPassword.c_str(),
+      willTopic.c_str(),
+      1,
       true,
-      offlinePayload.c_str()
-    );
-  } else {
-    connected = mqttClient.connect(
-      clientId.c_str(),
-      statusTopic().c_str(),
-      0,
-      true,
-      offlinePayload.c_str()
+      willPayload.c_str()
     );
   }
 
-  if (connected) {
-    Serial.println("MQTT terhubung.");
-
-    mqttClient.publish(statusTopic().c_str(), onlinePayload.c_str(), true);
-
-    if (mqttClient.subscribe(commandTopic().c_str(), 0)) {
-      Serial.print("Subscribe command topic: ");
-      Serial.println(commandTopic());
-    } else {
-      Serial.println("Gagal subscribe command topic.");
-    }
-  } else {
-    Serial.print("MQTT gagal. State: ");
-    Serial.println(mqttClient.state());
-  }
+  return mqttClient.connect(
+    clientId.c_str(),
+    willTopic.c_str(),
+    1,
+    true,
+    willPayload.c_str()
+  );
 }
 
 void maintainMqtt() {
@@ -733,60 +1440,282 @@ void maintainMqtt() {
   }
 
   unsigned long now = millis();
+  if (lastMqttReconnectMillis != 0 && now - lastMqttReconnectMillis < MQTT_RECONNECT_INTERVAL_MS) {
+    return;
+  }
 
-  if (now - lastMqttReconnectMs >= MQTT_RECONNECT_INTERVAL_MS) {
-    lastMqttReconnectMs = now;
-    connectMqtt();
+  lastMqttReconnectMillis = now;
+
+  String clientId = String("SmartVolt-ESP32-") + config.espUnitId + "-" + chipSuffix();
+  String willTopic = statusTopic();
+
+  StaticJsonDocument<256> willDocument;
+  willDocument["esp_unit_id"] = config.espUnitId;
+  willDocument["online"] = false;
+  willDocument["firmware_version"] = FIRMWARE_VERSION;
+
+  String willPayload;
+  serializeJson(willDocument, willPayload);
+
+  Serial.println();
+  Serial.print("[MQTT] Menghubungkan ke ");
+  Serial.print(config.mqttHost);
+  Serial.print(":");
+  Serial.println(config.mqttPort);
+  Serial.print("[MQTT] Client ID: ");
+  Serial.println(clientId);
+
+  bool connected = connectMqttWithConfiguredCredentials(clientId, willTopic, willPayload);
+
+  if (!connected) {
+    Serial.print("[MQTT] Gagal connect. State: ");
+    Serial.println(mqttClient.state());
+    return;
+  }
+
+  Serial.println("[MQTT] Terhubung ke broker.");
+
+  String topic = commandTopic();
+  bool subscribed = mqttClient.subscribe(topic.c_str(), 1);
+
+  Serial.print("[MQTT] Subscribe ");
+  Serial.print(topic);
+  Serial.print(" -> ");
+  Serial.println(subscribed ? "OK" : "GAGAL");
+
+  publishStatus(true);
+  lastHeartbeatMillis = millis();
+  requestImmediateTelemetry();
+}
+
+void maintainHeartbeat() {
+  if (!mqttClient.connected()) {
+    return;
+  }
+
+  unsigned long now = millis();
+  if (lastHeartbeatMillis != 0 && now - lastHeartbeatMillis < HEARTBEAT_INTERVAL_MS) {
+    return;
+  }
+
+  lastHeartbeatMillis = now;
+  publishStatus(true);
+}
+
+// ============================================================================
+// SERIAL TEST DAN MAINTENANCE
+// ============================================================================
+void printRuntimeStatus() {
+  Serial.println();
+  Serial.println("========== SMARTVOLT STATUS ==========");
+  Serial.print("Firmware        : ");
+  Serial.println(FIRMWARE_VERSION);
+  Serial.print("ESP Unit ID     : ");
+  Serial.println(config.espUnitId);
+  Serial.print("Meter Code      : ");
+  Serial.println(config.meterCode);
+  Serial.print("Wi-Fi           : ");
+  Serial.println(WiFi.status() == WL_CONNECTED ? "CONNECTED" : "DISCONNECTED");
+  Serial.print("MQTT            : ");
+  Serial.println(mqttClient.connected() ? "CONNECTED" : "DISCONNECTED");
+  Serial.print("PZEM            : ");
+  Serial.println(latestPzem.valid ? "VALID" : "INVALID");
+  Serial.print("Relay 1         : ");
+  Serial.println(relay1State ? "ON" : "OFF");
+  Serial.print("Relay 2         : ");
+  Serial.println(relay2State ? "ON" : "OFF");
+  Serial.print("Laravel         : ");
+  Serial.print(config.serverHost);
+  Serial.print(":");
+  Serial.println(config.serverPort);
+  Serial.print("MQTT Broker     : ");
+  Serial.print(config.mqttHost);
+  Serial.print(":");
+  Serial.println(config.mqttPort);
+  Serial.println("======================================");
+}
+
+void handleSerialCommand() {
+  if (!Serial.available()) {
+    return;
+  }
+
+  char command = Serial.read();
+
+  if (command == '\n' || command == '\r') {
+    return;
+  }
+
+  Serial.print("[SERIAL] Command: ");
+  Serial.println(command);
+
+  bool actualState = false;
+
+  switch (command) {
+    case '1':
+      setRelayByCode("1", true, actualState);
+      publishStatus(true);
+      break;
+
+    case '0':
+      setRelayByCode("1", false, actualState);
+      publishStatus(true);
+      break;
+
+    case '2':
+      setRelayByCode("2", true, actualState);
+      publishStatus(true);
+      break;
+
+    case '3':
+      setRelayByCode("2", false, actualState);
+      publishStatus(true);
+      break;
+
+    case 'a':
+    case 'A':
+      setRelayByCode("1", true, actualState);
+      setRelayByCode("2", true, actualState);
+      publishStatus(true);
+      break;
+
+    case 'x':
+    case 'X':
+      allRelaysOff();
+      publishStatus(true);
+      break;
+
+    case 'p':
+    case 'P':
+      updatePzemReading(true, true);
+      break;
+
+    case 'r':
+    case 'R': {
+      bool resetOk = pzem.resetEnergy();
+      Serial.println(resetOk ? "[PZEM] Energy berhasil di-reset." : "[PZEM] Gagal reset energy.");
+      break;
+    }
+
+    case 't':
+    case 'T':
+      requestImmediateTelemetry();
+      Serial.println("[HTTP] Telemetry diminta segera.");
+      break;
+
+    case 's':
+    case 'S':
+      printRuntimeStatus();
+      break;
+
+    case 'c':
+    case 'C':
+      requestConfigurationPortal();
+      break;
+
+    case 'f':
+    case 'F':
+      clearStoredConfigAndRestart();
+      break;
+
+    default:
+      Serial.println("[SERIAL] Gunakan: 1,0,2,3,a,x,p,r,t,s,c,f");
+      break;
   }
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| SETUP DAN LOOP
-|--------------------------------------------------------------------------
-*/
-
+// ============================================================================
+// SETUP
+// ============================================================================
 void setup() {
+  // Safe boot dilakukan paling awal.
+  initializeRelaysSafe();
+  pinMode(SETUP_BUTTON_PIN, INPUT_PULLUP);
+
   Serial.begin(115200);
-  delay(800);
+  delay(500);
 
   Serial.println();
   Serial.println("======================================");
-  Serial.println("SMARTVOLT ESP32 START");
+  Serial.println("SMARTVOLT ESP32 PROFESSIONAL");
+  Serial.print("Firmware Version  : ");
+  Serial.println(FIRMWARE_VERSION);
+  Serial.println("Telemetry Normal  : 1 menit");
+  Serial.println("Heartbeat MQTT    : 20 detik");
+  Serial.println("Relay Boot State  : Semua OFF");
   Serial.println("======================================");
 
-  setupRelays();
+  loadConfig();
 
-  Serial2.begin(9600, SERIAL_8N1, PZEM_RX_PIN, PZEM_TX_PIN);
-
-  connectWiFi();
-
-  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
-  mqttClient.setCallback(handleMqttCommand);
-  mqttClient.setBufferSize(1024);
-  mqttClient.setKeepAlive(30);
-  mqttClient.setSocketTimeout(5);
-
-  connectMqtt();
-
-  if (WiFi.status() == WL_CONNECTED) {
-    sendTelemetry();
+  if (setupButtonHeldAtBoot() || portalRequestedAtBoot) {
+    startConfigurationPortal();
   }
 
-  lastTelemetryMs = millis();
+  Serial.print("[CONFIG] ESP Unit ID : ");
+  Serial.println(config.espUnitId);
+  Serial.print("[CONFIG] Meter Code  : ");
+  Serial.println(config.meterCode);
+  Serial.print("[CONFIG] Laravel     : ");
+  Serial.print(config.serverHost);
+  Serial.print(":");
+  Serial.println(config.serverPort);
+  Serial.print("[CONFIG] MQTT        : ");
+  Serial.print(config.mqttHost);
+  Serial.print(":");
+  Serial.println(config.mqttPort);
+
+  mqttClient.setServer(config.mqttHost.c_str(), config.mqttPort);
+  mqttClient.setCallback(mqttCallback);
+  mqttClient.setBufferSize(1024);
+  mqttClient.setKeepAlive(20);
+  mqttClient.setSocketTimeout(8);
+
+  if (!connectWiFiAtBoot()) {
+    Serial.println("[WIFI] Membuka portal agar pengguna dapat memperbaiki konfigurasi.");
+    startConfigurationPortal();
+  }
+
+  updatePzemReading(true, true);
+  maintainMqtt();
+  initializeWatchdog();
+
+  telemetryImmediate = true;
+  telemetryWaitIntervalMillis = 0;
+  lastTelemetryAttemptMillis = 0;
+
+  Serial.println();
+  Serial.println("[INFO] Perintah Serial Monitor:");
+  Serial.println("1/0 = Relay 1 ON/OFF");
+  Serial.println("2/3 = Relay 2 ON/OFF");
+  Serial.println("a/x = Semua relay ON/OFF");
+  Serial.println("p   = Baca PZEM");
+  Serial.println("r   = Reset energy PZEM");
+  Serial.println("t   = Kirim telemetry sekarang");
+  Serial.println("s   = Tampilkan status");
+  Serial.println("c   = Buka portal konfigurasi setelah restart");
+  Serial.println("f   = Hapus seluruh konfigurasi dan restart");
 }
 
+// ============================================================================
+// LOOP
+// ============================================================================
 void loop() {
+  feedWatchdog();
+
   maintainWiFi();
-  maintainMqtt();
 
-  unsigned long now = millis();
+  if (WiFi.status() == WL_CONNECTED) {
+    initializeOtaIfNeeded();
+    ArduinoOTA.handle();
 
-  if (WiFi.status() == WL_CONNECTED && now - lastTelemetryMs >= TELEMETRY_INTERVAL_MS) {
-    lastTelemetryMs = now;
-    sendTelemetry();
+    maintainMqtt();
+    updatePzemReading();
+    maintainTelemetry();
+    maintainHeartbeat();
   }
+
+  handleSerialCommand();
+  handleSetupButtonRuntime();
 
   delay(10);
 }
