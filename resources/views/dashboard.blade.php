@@ -395,7 +395,7 @@
                     </div>
                 </div>
 
-                <div class="sv-stats" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+                <div class="sv-stats" style="grid-template-columns: repeat(4, minmax(0, 1fr));">
                     <div class="sv-stat-card sv-glass energy">
                         <div class="label">Energi Hari Ini</div>
                         <div class="value">
@@ -409,8 +409,45 @@
                         <div class="label">Daya Saat Ini</div>
                         <div class="value">
                             <i class="bi bi-plug-fill"></i>
-                            <span>{{ number_format($dashboardData['stats']['current_power'] ?? 0, 0, ',', '.') }}</span>
+                            <span>{{ number_format($dashboardData['stats']['current_power'] ?? 0, 1, ',', '.') }}</span>
                             <small>Watt</small>
+                        </div>
+                    </div>
+
+                    <div
+                        class="sv-stat-card sv-glass billing"
+                        title="Total estimasi bulan berjalan dari seluruh meter ruangan aktif."
+                    >
+                        <div class="label">
+                            Estimasi Tagihan Bulan Ini
+                        </div>
+
+                        <div class="value">
+                            <i class="bi bi-cash-coin"></i>
+
+                            <span>
+                                Rp {{ number_format(
+                                    $dashboardData['stats']['monthly_estimated_cost'] ?? 0,
+                                    0,
+                                    ',',
+                                    '.'
+                                ) }}
+                            </span>
+                        </div>
+
+                        <div
+                            class="sv-card-meta"
+                            style="margin-top: 8px;"
+                        >
+                            {{ number_format(
+                                $dashboardData['stats']['monthly_energy_usage'] ?? 0,
+                                4,
+                                ',',
+                                '.'
+                            ) }} kWh
+                            ·
+                            {{ $dashboardData['stats']['active_meters'] ?? 0 }}
+                            meter aktif
                         </div>
                     </div>
 
@@ -502,7 +539,11 @@
                                                         <div>
                                                             <div class="sv-dashboard-device-name">{{ $device->name }}</div>
 
-                                                    <form>
+                                                            
+                                                        </div>
+                                                    </div>
+
+                                                    <form
                                                         action="{{ route('devices.toggle', $device->id) }}"
                                                         method="POST"
                                                         class="sv-device-toggle-form"

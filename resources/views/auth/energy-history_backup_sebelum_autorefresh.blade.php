@@ -22,7 +22,7 @@
     <style>
         .history-grid {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(4, 1fr);
             gap: 16px;
             margin-bottom: 20px;
         }
@@ -485,7 +485,7 @@
                     <div class="sv-topbar-left" style="display: flex; align-items: center; gap: 16px;">
                         <div>
                             <h1 class="sv-page-title">Pemakaian Listrik Ruangan</h1>
-                            <p class="sv-page-sub">Riwayat penggunaan listrik</p>
+                            <p class="sv-page-sub">Riwayat pembacaan PZEM untuk setiap ruangan atau panel listrik.</p>
                         </div>
                     </div>
 
@@ -510,7 +510,7 @@
                     <div class="sv-hero-card sv-glass" style="padding: 28px;">
                         <h1 style="margin-bottom: 10px;">Pemakaian Listrik Ruangan</h1>
                         <p style="margin: 0; color: #b9cae3;">
-                            Riwayat penggunaan listrik
+                            Riwayat pembacaan PZEM untuk setiap ruangan atau panel listrik.
                         </p>
                     </div>
                 </div>
@@ -588,6 +588,11 @@
 
                 <div class="history-grid">
                     <div class="history-card sv-glass">
+                        <div class="history-label">Total Data</div>
+                        <div class="history-value">{{ number_format($summary['total_logs'] ?? 0, 0, ',', '.') }}</div>
+                    </div>
+
+                    <div class="history-card sv-glass">
                         <div class="history-label">Daya Total Tertinggi</div>
                         <div class="history-value">{{ number_format($summary['max_power'] ?? 0, 1, ',', '.') }} W</div>
                     </div>
@@ -608,7 +613,7 @@
                         <div>
                             <h3 style="margin: 0;">Estimasi Pembayaran Listrik</h3>
                             <div class="sv-panel-sub">
-                             Estimasi periode pemakaian dihitung berdasarkan rentang tanggal yang diterapkan. Estimasi hari, minggu, dan bulan menggunakan tanggal selesai sebagai tanggal acuan.
+                                Perkiraan biaya berdasarkan total pemakaian kWh ruangan atau panel dikalikan tarif listrik.
                             </div>
                         </div>
 
@@ -635,7 +640,7 @@
                                         <div>
                                             <p class="estimation-toggle-cost-label">Estimasi Pembayaran</p>
                                             <p class="estimation-toggle-cost">
-                                                Rp {{ number_format($item['estimated_cost'], 2, ',', '.') }}
+                                                Rp {{ number_format($item['estimated_cost'], 0, ',', '.') }}
                                             </p>
                                         </div>
 
@@ -648,7 +653,7 @@
                                         <div class="estimation-detail-card">
                                             <p class="estimation-detail-label">Total Pemakaian</p>
                                             <p class="estimation-detail-value">
-                                                {{ number_format($item['usage_kwh'], 6, ',', '.') }} kWh
+                                                {{ number_format($item['usage_kwh'], 4, ',', '.') }} kWh
                                             </p>
                                             <p class="estimation-detail-note">
                                                 Total energi ruangan atau panel pada periode {{ strtolower($item['label']) }}.
@@ -658,7 +663,7 @@
                                         <div class="estimation-detail-card">
                                             <p class="estimation-detail-label">Estimasi Biaya</p>
                                             <p class="estimation-detail-value cost">
-                                                Rp {{ number_format($item['estimated_cost'], 2, ',', '.') }}
+                                                Rp {{ number_format($item['estimated_cost'], 0, ',', '.') }}
                                             </p>
                                             <p class="estimation-detail-note">
                                                 Dihitung dari total kWh dikali tarif listrik per kWh.
@@ -669,18 +674,18 @@
                                     <div class="estimation-formula">
                                         <p class="formula-label">Rumus Perhitungan</p>
                                         <p class="formula-text">
-                                            {{ number_format($item['usage_kwh'], 6, ',', '.') }} kWh
+                                            {{ number_format($item['usage_kwh'], 4, ',', '.') }} kWh
                                             &times;
                                             Rp {{ number_format($item['tariff'], 0, ',', '.') }} / kWh
                                             =
-                                            Rp {{ number_format($item['estimated_cost'], 2, ',', '.') }}
+                                            Rp {{ number_format($item['estimated_cost'], 0, ',', '.') }}
                                         </p>
                                     </div>
                                 </div>
                             </div>
                         @empty
                             <div class="history-empty">
-                                Data estimasi belum tersedia. Estimasi akan muncul setelah Meteran mengirim data pemakaian listrik ruangan.
+                                Data estimasi belum tersedia. Estimasi akan muncul setelah PZEM mengirim data pemakaian listrik ruangan.
                             </div>
                         @endforelse
                     </div>
@@ -690,7 +695,7 @@
                     <div class="sv-panel-head">
                         <div>
                             <h3>Grafik Daya Ruangan</h3>
-                            <div class="sv-panel-sub">Data daya total dan energi terbaru</div>
+                            <div class="sv-panel-sub">Data daya total dan energi terbaru dari PZEM ruangan atau panel.</div>
                         </div>
                     </div>
 
@@ -707,7 +712,7 @@
                     <div class="sv-panel-head">
                         <div>
                             <h3>Pemakaian Listrik Ruangan</h3>
-                            <div class="sv-panel-sub">Riwayat pembacaan Meteran untuk setiap ruangan</div>
+                            <div class="sv-panel-sub">Riwayat pembacaan PZEM untuk setiap ruangan atau panel listrik.</div>
                         </div>
                     </div>
 
@@ -766,7 +771,7 @@
                                     <tr>
                                         <td colspan="7">
                                             <div class="history-empty">
-                                                Belum ada data listrik ruangan
+                                                Belum ada data listrik ruangan. Pastikan PZEM sudah ditambahkan di Panel Teknisi dan ESP32 sudah mengirim data.
                                             </div>
                                         </td>
                                     </tr>
@@ -1052,9 +1057,9 @@
                 },
                 {
                     label: 'Estimasi Pembayaran',
-                    hari_ini: `Rp ${formatNumber(today.estimated_cost, 2)}`,
-                    minggu_ini: `Rp ${formatNumber(week.estimated_cost, 2)}`,
-                    bulan_ini: `Rp ${formatNumber(month.estimated_cost, 2)}`,
+                    hari_ini: `Rp ${formatNumber(today.estimated_cost)}`,
+                    minggu_ini: `Rp ${formatNumber(week.estimated_cost)}`,
+                    bulan_ini: `Rp ${formatNumber(month.estimated_cost)}`,
                 },
             ];
         }

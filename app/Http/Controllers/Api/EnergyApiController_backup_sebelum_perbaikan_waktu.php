@@ -9,21 +9,16 @@ use App\Models\EnergyLog;
 use App\Models\EnergyMeter;
 use App\Models\Room;
 use App\Models\SystemSetting;
+use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 class EnergyApiController extends Controller
 {
-    private const DEFAULT_TIMEZONE = 'Asia/Jakarta';
-    private const DEFAULT_TARIFF = 1444;
-    private const RAW_LOG_RETENTION_DAYS = 30;
-
     private function checkApiKey(Request $request): void
     {
         $configuredApiKey = (string) config('services.iot.api_key');
@@ -61,56 +56,16 @@ class EnergyApiController extends Controller
                 'max:100',
                 'required_without:esp_unit_id',
             ],
-            'meter_code' => [
-                'nullable',
-                'string',
-                'max:50',
-            ],
-            'telemetry_id' => [
-                'nullable',
-                'string',
-                'max:100',
-            ],
-            'observed_at' => [
-                'nullable',
-                'date',
-            ],
+            'meter_code' => ['nullable', 'string', 'max:50'],
+            'telemetry_id' => ['nullable', 'string', 'max:100'],
+            'observed_at' => ['nullable', 'date'],
 
-            /*
-             * Rentang berikut mencegah nilai negatif, korup, atau tidak masuk
-             * akal masuk ke database. Sesuaikan batas maksimum apabila
-             * perangkat SmartVolt dikembangkan untuk kapasitas yang lebih besar.
-             */
-            'voltage' => [
-                'required',
-                'numeric',
-                'between:0,300',
-            ],
-            'current' => [
-                'required',
-                'numeric',
-                'between:0,100',
-            ],
-            'power' => [
-                'required',
-                'numeric',
-                'between:0,30000',
-            ],
-            'energy' => [
-                'required',
-                'numeric',
-                'min:0',
-            ],
-            'frequency' => [
-                'nullable',
-                'numeric',
-                'between:40,70',
-            ],
-            'power_factor' => [
-                'nullable',
-                'numeric',
-                'between:0,1',
-            ],
+            'voltage' => ['required', 'numeric'],
+            'current' => ['required', 'numeric'],
+            'power' => ['required', 'numeric'],
+            'energy' => ['required', 'numeric'],
+            'frequency' => ['nullable', 'numeric'],
+            'power_factor' => ['nullable', 'numeric'],
         ]);
 
         $espUnitId = trim((string) (
@@ -140,25 +95,16 @@ class EnergyApiController extends Controller
         }
 
         $telemetryId = filled($validated['telemetry_id'] ?? null)
-            ? trim((string) $validated['telemetry_id'])
+            ? (string) $validated['telemetry_id']
             : null;
 
         /*
-         * SmartVolt saat ini berjalan pada server lokal dengan timezone
-         * Asia/Jakarta. observed_at disimpan menggunakan timezone aplikasi
-         * agar konsisten dengan created_at dan updated_at.
-         *
-         * Apabila observed_at dikirim dengan offset, misalnya +07:00 atau Z,
-         * Carbon akan membacanya lalu mengonversi ke timezone aplikasi.
+         * observed_at disimpan sebagai UTC.
+         * Untuk tampilan WIB dan rekap harian, data dikonversi ke Asia/Jakarta.
          */
-        $timezone = $this->applicationTimezone();
-
         $observedAt = isset($validated['observed_at'])
-            ? CarbonImmutable::parse(
-                (string) $validated['observed_at'],
-                $timezone
-            )->setTimezone($timezone)
-            : CarbonImmutable::now($timezone);
+            ? CarbonImmutable::parse($validated['observed_at'])->utc()
+            : CarbonImmutable::now('UTC');
 
         $energyData = [
             'voltage' => (float) $validated['voltage'],
@@ -187,14 +133,9 @@ class EnergyApiController extends Controller
             );
 
             if ($result['created']) {
-                /*
-                 * Rekap dibangun ulang dari seluruh log pada hari yang sama.
-                 * Cara ini lebih aman untuk data terlambat, urutan request yang
-                 * berubah, dan reset nilai energi PZEM.
-                 */
-                $result['daily_summary'] = $this->rebuildDailySummary(
+                $result['daily_summary'] = $this->updateDailySummary(
                     energyMeter: $meter,
-                    latestLog: $result['log'],
+                    latestLog: $result['log']
                 );
             } else {
                 $result['daily_summary'] = null;
@@ -203,12 +144,8 @@ class EnergyApiController extends Controller
             return $result;
         }, 3);
 
-        /*
-         * Cleanup dibatasi satu kali per hari. Telemetry tidak lagi menjalankan
-         * DELETE pada setiap pengiriman satu menit.
-         */
         if ($result['created']) {
-            $this->cleanupOldEnergyLogsOncePerDay();
+            $this->cleanupOldEnergyLogs();
         }
 
         return response()->json([
@@ -222,9 +159,10 @@ class EnergyApiController extends Controller
             'energy_meter_id' => $meter->id,
             'telemetry_id' => $telemetryId,
 
-            'observed_at' => $observedAt->format('Y-m-d H:i:s'),
-            'observed_at_iso' => $observedAt->toIso8601String(),
-            'timezone' => $timezone,
+            'observed_at' => $observedAt->toIso8601String(),
+            'observed_at_wib' => $observedAt
+                ->timezone('Asia/Jakarta')
+                ->format('Y-m-d H:i:s'),
 
             'created_logs' => $result['created'] ? 1 : 0,
             'duplicate_logs' => $result['created'] ? 0 : 1,
@@ -254,8 +192,7 @@ class EnergyApiController extends Controller
 
         return response()->json([
             'success' => true,
-            'esp_unit_id' => $device->esp_unit_id
-                ?? $device->esp32_device_id,
+            'esp_unit_id' => $device->esp_unit_id ?? $device->esp32_device_id,
             'esp32_device_id' => $device->esp32_device_id,
             'device_id' => $device->id,
             'device_name' => $device->name,
@@ -349,11 +286,6 @@ class EnergyApiController extends Controller
                 'created' => true,
             ];
         } catch (QueryException $exception) {
-            /*
-             * Jika database mempunyai unique index untuk
-             * energy_meter_id + telemetry_id, request bersamaan dapat
-             * menyebabkan duplicate-key. Ambil record yang sudah dibuat.
-             */
             if ($telemetryId !== null) {
                 $existing = EnergyLog::query()
                     ->where('energy_meter_id', $meter->id)
@@ -372,7 +304,7 @@ class EnergyApiController extends Controller
         }
     }
 
-    private function rebuildDailySummary(
+    private function updateDailySummary(
         EnergyMeter $energyMeter,
         EnergyLog $latestLog
     ): ?EnergyDailySummary {
@@ -380,209 +312,137 @@ class EnergyApiController extends Controller
             return null;
         }
 
-        $timezone = $this->applicationTimezone();
+        $observedAtWib = Carbon::parse($latestLog->observed_at)
+            ->timezone('Asia/Jakarta');
 
-        $rawObservedAt = $latestLog->getRawOriginal('observed_at')
-            ?: $latestLog->observed_at;
+        $summaryDate = $observedAtWib->toDateString();
 
-        $observedAtLocal = CarbonImmutable::parse(
-            (string) $rawObservedAt,
-            $timezone
-        )->setTimezone($timezone);
+        $dayStartUtc = Carbon::parse($summaryDate, 'Asia/Jakarta')
+            ->startOfDay()
+            ->utc();
 
-        $summaryDate = $observedAtLocal->toDateString();
+        $dayEndUtc = Carbon::parse($summaryDate, 'Asia/Jakarta')
+            ->endOfDay()
+            ->utc();
 
-        $dayStart = $observedAtLocal->startOfDay();
-        $dayEnd = $observedAtLocal->endOfDay();
+        $energyValue = (float) ($latestLog->energy ?? 0);
+        $voltageValue = (float) ($latestLog->voltage ?? 0);
+        $currentValue = (float) ($latestLog->current ?? 0);
+        $powerValue = (float) ($latestLog->power ?? 0);
 
-        $logs = EnergyLog::query()
+        $tariff = $this->getElectricityTariff((int) $energyMeter->user_id);
+
+        $summary = EnergyDailySummary::firstOrNew([
+            'energy_meter_id' => $energyMeter->id,
+            'summary_date' => $summaryDate,
+        ]);
+
+        if (! $summary->exists) {
+            $summary->user_id = $energyMeter->user_id;
+            $summary->energy_start = $energyValue;
+            $summary->energy_end = $energyValue;
+            $summary->usage_kwh = 0;
+            $summary->avg_voltage = $voltageValue;
+            $summary->max_power = $powerValue;
+            $summary->last_voltage = $voltageValue;
+            $summary->last_current = $currentValue;
+            $summary->last_power = $powerValue;
+            $summary->tariff_per_kwh = $tariff;
+            $summary->estimated_cost = 0;
+            $summary->sample_count = 1;
+            $summary->last_observed_at = $latestLog->observed_at;
+            $summary->save();
+
+            return $summary;
+        }
+
+        $previousLog = EnergyLog::query()
             ->where('energy_meter_id', $energyMeter->id)
-            ->whereBetween('observed_at', [$dayStart, $dayEnd])
+            ->where('id', '<', $latestLog->id)
+            ->whereBetween('observed_at', [$dayStartUtc, $dayEndUtc])
             ->whereNotNull('energy')
-            ->orderBy('observed_at')
-            ->orderBy('id')
-            ->get([
-                'id',
-                'observed_at',
-                'voltage',
-                'current',
-                'power',
-                'energy',
-            ]);
-
-        if ($logs->isEmpty()) {
-            return null;
-        }
-
-        $usageKwh = 0.0;
-        $previousEnergy = null;
-        $voltageTotal = 0.0;
-        $maxPower = 0.0;
-
-        foreach ($logs as $log) {
-            $currentEnergy = max(0, (float) $log->energy);
-            $voltage = max(0, (float) $log->voltage);
-            $power = max(0, (float) $log->power);
-
-            $voltageTotal += $voltage;
-            $maxPower = max($maxPower, $power);
-
-            if ($previousEnergy !== null) {
-                if ($currentEnergy >= $previousEnergy) {
-                    /*
-                     * Nilai energy dari PZEM bersifat kumulatif.
-                     * Pemakaian adalah selisih positif antarpembacaan.
-                     */
-                    $usageKwh += $currentEnergy - $previousEnergy;
-                } else {
-                    /*
-                     * Penurunan energy dapat berarti reset PZEM, pergantian
-                     * meter, data lama yang datang terlambat, atau data uji.
-                     * Nilai setelah turun tidak langsung dihitung sebagai
-                     * pemakaian baru agar biaya tidak melonjak.
-                     */
-                    if ((int) $log->id === (int) $latestLog->id) {
-                        Log::notice('Penurunan energi PZEM terdeteksi.', [
-                            'energy_meter_id' => $energyMeter->id,
-                            'previous_energy' => $previousEnergy,
-                            'current_energy' => $currentEnergy,
-                            'observed_at' => $log->observed_at,
-                        ]);
-                    }
-                }
-            }
-
-            $previousEnergy = $currentEnergy;
-        }
-
-        $firstLog = $logs->first();
-        $lastLog = $logs->last();
-        $sampleCount = $logs->count();
-
-        $tariff = $this->getElectricityTariff(
-            (int) $energyMeter->user_id
-        );
-
-        /*
-         * Row yang sudah ada dikunci selama transaksi agar dua request
-         * tidak saling menimpa rekap yang sama.
-         */
-        $summary = EnergyDailySummary::query()
-            ->where('energy_meter_id', $energyMeter->id)
-            ->where('summary_date', $summaryDate)
-            ->lockForUpdate()
+            ->orderByDesc('id')
             ->first();
 
-        if (! $summary) {
-            $summary = new EnergyDailySummary();
-            $summary->energy_meter_id = $energyMeter->id;
-            $summary->summary_date = $summaryDate;
+        $deltaKwh = 0;
+
+        if ($previousLog) {
+            $previousEnergy = (float) ($previousLog->energy ?? 0);
+
+            if ($energyValue >= $previousEnergy) {
+                $deltaKwh = $energyValue - $previousEnergy;
+            } else {
+                $deltaKwh = max(0, $energyValue);
+            }
         }
 
-        $summary->user_id = $energyMeter->user_id;
-        $summary->energy_start = max(0, (float) $firstLog->energy);
-        $summary->energy_end = max(0, (float) $lastLog->energy);
-        $summary->usage_kwh = round($usageKwh, 6);
+        $oldSampleCount = max(1, (int) $summary->sample_count);
+        $newSampleCount = $oldSampleCount + 1;
+
+        $summary->energy_end = $energyValue;
+        $summary->usage_kwh = round(((float) $summary->usage_kwh) + $deltaKwh, 4);
+
         $summary->avg_voltage = round(
-            $voltageTotal / max(1, $sampleCount),
+            ((((float) $summary->avg_voltage) * $oldSampleCount) + $voltageValue) / $newSampleCount,
             2
         );
-        $summary->max_power = round($maxPower, 3);
-        $summary->last_voltage = max(0, (float) $lastLog->voltage);
-        $summary->last_current = max(0, (float) $lastLog->current);
-        $summary->last_power = max(0, (float) $lastLog->power);
+
+        $summary->max_power = max((float) $summary->max_power, $powerValue);
+
+        $summary->last_voltage = $voltageValue;
+        $summary->last_current = $currentValue;
+        $summary->last_power = $powerValue;
+
         $summary->tariff_per_kwh = $tariff;
-        $summary->estimated_cost = round($usageKwh * $tariff, 2);
-        $summary->sample_count = $sampleCount;
-        $summary->last_observed_at = $lastLog->observed_at;
+        $summary->estimated_cost = round(((float) $summary->usage_kwh) * $tariff, 2);
+
+        $summary->sample_count = $newSampleCount;
+        $summary->last_observed_at = $latestLog->observed_at;
+
         $summary->save();
 
-        return $summary->fresh();
+        return $summary;
     }
 
     private function getElectricityTariff(int $userId): float
     {
         if (! Schema::hasTable('system_settings')) {
-            return self::DEFAULT_TARIFF;
+            return 1444;
         }
 
-        $setting = SystemSetting::query()
-            ->where('user_id', $userId)
-            ->first();
+        $setting = SystemSetting::where('user_id', $userId)->first();
 
-        return max(
-            0,
-            (float) ($setting?->electricity_tariff
-                ?? self::DEFAULT_TARIFF)
-        );
+        return (float) ($setting?->electricity_tariff ?? 1444);
     }
 
-    private function cleanupOldEnergyLogsOncePerDay(): void
+    private function cleanupOldEnergyLogs(): void
     {
         try {
-            $cacheKey = 'smartvolt:cleanup-energy-logs';
-
             /*
-             * Hanya request pertama dalam 24 jam yang menjalankan cleanup.
+             * Default: simpan data detail 7 hari terakhir.
+             * Kalau mau lebih ringan, ganti subDays(7) menjadi subDays(1).
              */
-            if (! Cache::add(
-                $cacheKey,
-                true,
-                now()->addDay()
-            )) {
-                return;
-            }
-
-            $timezone = $this->applicationTimezone();
-            $cutoff = CarbonImmutable::now($timezone)
-                ->subDays(self::RAW_LOG_RETENTION_DAYS);
-
             EnergyLog::query()
-                ->where('observed_at', '<', $cutoff)
+                ->where('observed_at', '<', now('Asia/Jakarta')->subDays(7)->utc())
                 ->delete();
         } catch (\Throwable $exception) {
             /*
-             * Cleanup tidak boleh membuat telemetry gagal, tetapi kesalahan
-             * tetap dicatat agar teknisi dapat memeriksanya.
+             * Cleanup tidak boleh membuat telemetry gagal.
              */
-            Log::warning('Cleanup energy_logs gagal.', [
-                'message' => $exception->getMessage(),
-            ]);
         }
     }
 
     private function deviceQueryForEsp(string $espIdentifier)
     {
-        $hasEspUnitId = Schema::hasColumn('devices', 'esp_unit_id');
-        $hasEsp32DeviceId = Schema::hasColumn(
-            'devices',
-            'esp32_device_id'
-        );
-
         return Device::query()
             ->with('room')
-            ->where(function ($query) use (
-                $espIdentifier,
-                $hasEspUnitId,
-                $hasEsp32DeviceId
-            ) {
-                if ($hasEspUnitId) {
+            ->where(function ($query) use ($espIdentifier) {
+                if (Schema::hasColumn('devices', 'esp_unit_id')) {
                     $query->where('esp_unit_id', $espIdentifier);
                 }
 
-                if ($hasEsp32DeviceId) {
-                    $method = $hasEspUnitId ? 'orWhere' : 'where';
-                    $query->{$method}(
-                        'esp32_device_id',
-                        $espIdentifier
-                    );
-                }
-
-                /*
-                 * Mencegah seluruh device terbaca apabila kedua kolom tidak ada.
-                 */
-                if (! $hasEspUnitId && ! $hasEsp32DeviceId) {
-                    $query->whereRaw('1 = 0');
+                if (Schema::hasColumn('devices', 'esp32_device_id')) {
+                    $query->orWhere('esp32_device_id', $espIdentifier);
                 }
             });
     }
@@ -606,7 +466,7 @@ class EnergyApiController extends Controller
             return (int) $status === 1;
         }
 
-        return in_array(strtolower(trim((string) $status)), [
+        return in_array(strtolower((string) $status), [
             'on',
             'nyala',
             'active',
@@ -616,17 +476,13 @@ class EnergyApiController extends Controller
         ], true);
     }
 
-    private function resolveSystemSetting(
-        Device $device
-    ): ?SystemSetting {
-        if (! Schema::hasTable('system_settings')) {
-            return null;
-        }
-
+    private function resolveSystemSetting(Device $device): ?SystemSetting
+    {
         if (Schema::hasColumn('system_settings', 'device_id')) {
-            $systemSetting = SystemSetting::query()
-                ->where('device_id', $device->id)
-                ->first();
+            $systemSetting = SystemSetting::where(
+                'device_id',
+                $device->id
+            )->first();
 
             if ($systemSetting) {
                 return $systemSetting;
@@ -634,29 +490,19 @@ class EnergyApiController extends Controller
         }
 
         if (! empty($device->room_id)) {
-            $roomUserId = Room::query()
-                ->where('id', $device->room_id)
-                ->value('user_id');
+            $roomUserId = Room::where(
+                'id',
+                $device->room_id
+            )->value('user_id');
 
             if ($roomUserId) {
-                return SystemSetting::query()
-                    ->where('user_id', $roomUserId)
-                    ->first();
+                return SystemSetting::where(
+                    'user_id',
+                    $roomUserId
+                )->first();
             }
         }
 
         return null;
-    }
-
-    private function applicationTimezone(): string
-    {
-        $timezone = trim((string) config(
-            'app.timezone',
-            self::DEFAULT_TIMEZONE
-        ));
-
-        return $timezone !== ''
-            ? $timezone
-            : self::DEFAULT_TIMEZONE;
     }
 }

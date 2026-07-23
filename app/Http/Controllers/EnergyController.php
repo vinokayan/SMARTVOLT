@@ -2,52 +2,44 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\EnergyDailySummary;
 use App\Models\EnergyLog;
 use App\Models\EnergyMeter;
 use App\Models\SystemSetting;
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Schema;
 
 class EnergyController extends Controller
 {
+    private const DEFAULT_TIMEZONE = 'Asia/Jakarta';
+    private const DEFAULT_TARIFF = 1444;
+
     public function index(Request $request)
     {
         /*
-         * Catatan:
-         * Parameter URL tetap memakai device_id agar form/filter lama tidak rusak.
-         * Tetapi isi device_id sekarang dimaknai sebagai energy_meter_id.
+         * Parameter URL tetap memakai device_id agar form/filter lama
+         * tidak rusak. Nilainya sekarang dimaknai sebagai energy_meter_id.
          *
-         * Konsep baru:
-         * - devices      = relay/perangkat ON-OFF
-         * - energy_meter = PZEM ruangan/panel
-         * - energy_logs  = riwayat pembacaan PZEM
+         * Jika tanggal tidak dipilih, halaman secara default menampilkan
+         * data hari ini. Dengan demikian kartu ringkasan tidak lagi
+         * mencampur data uji atau data lama dari seluruh riwayat.
          */
-
-        $filters = [
-            'meter_id' => $request->input('device_id'),
-            'date_from' => $request->input('date_from'),
-            'date_to' => $request->input('date_to'),
-        ];
-
+        $filters = $this->resolveFilters($request);
         $query = $this->energyLogQuery($filters);
 
         /*
-         * Tabel utama hanya menampilkan 1 baris terbaru untuk setiap meter PZEM.
-         * Jika telemetry baru masuk dari meter yang sama, barisnya tidak bertambah,
-         * tetapi nilai waktu, tegangan, arus, daya, dan energi berubah di baris yang sama.
+         * Tabel utama menampilkan satu pembacaan terbaru untuk setiap
+         * meter PZEM dalam periode filter.
          */
         $logs = $this->latestLogsForTable($filters)
             ->orderByDesc('observed_at')
+            ->orderByDesc('id')
             ->paginate(20)
             ->appends($request->query());
 
-        /*
-         * Menambahkan nama ruangan dan nama meter agar Blade mudah menampilkan:
-         * RUANGAN | METER RUANGAN | WAKTU | TEGANGAN | ARUS | DAYA TOTAL | ENERGI
-         *
-         * device_name tetap diisi untuk kompatibilitas Blade lama.
-         */
         $logs->getCollection()->transform(function (EnergyLog $log) {
             $meter = $log->energyMeter;
             $room = $meter?->room;
@@ -56,8 +48,8 @@ class EnergyController extends Controller
             $log->meter_name = $meter?->name ?? '-';
 
             /*
-             * Kompatibilitas dengan Blade lama yang mungkin masih memakai device_name.
-             * Sekarang device_name berisi nama meter PZEM, bukan nama relay.
+             * Kompatibilitas dengan Blade lama yang masih memakai
+             * properti device_name.
              */
             $log->device_name = $log->meter_name;
 
@@ -65,10 +57,11 @@ class EnergyController extends Controller
         });
 
         /*
-         * Variabel tetap bernama $devices agar Blade lama tidak error.
-         * Isinya sekarang adalah daftar PZEM / meter ruangan.
+         * Nama variabel tetap $devices agar Blade lama tidak error.
+         * Isinya merupakan daftar meter PZEM, bukan relay.
          */
-        $devices = EnergyMeter::with('room')
+        $devices = EnergyMeter::query()
+            ->with('room')
             ->where('user_id', Auth::id())
             ->where('is_active', true)
             ->orderBy('name')
@@ -82,30 +75,45 @@ class EnergyController extends Controller
             });
 
         $meterIds = $this->getMeterIds($filters);
-
-        $firstLog = (clone $query)
-            ->orderBy('observed_at')
-            ->first();
-
         $lastLog = (clone $query)
             ->orderByDesc('observed_at')
+            ->orderByDesc('id')
             ->first();
 
-        $usageKwh = 0;
+        $periodStart = Carbon::parse(
+            $filters['date_from'],
+            $this->applicationTimezone()
+        )->startOfDay();
 
-        if ($firstLog && $lastLog) {
-            $usageKwh = $this->calculateEnergyUsage(
-                $meterIds,
-                $this->toCarbon($firstLog->observed_at),
-                $this->toCarbon($lastLog->observed_at)
-            );
-        }
+        $periodEnd = Carbon::parse(
+            $filters['date_to'],
+            $this->applicationTimezone()
+        )->endOfDay();
 
+        $usageKwh = $this->calculateUsageForPeriod(
+            $meterIds,
+            $periodStart,
+            $periodEnd
+        );
+
+        /*
+         * total_logs harus menghitung seluruh telemetry sesuai filter,
+         * bukan jumlah meter pada tabel terbaru.
+         */
         $summary = [
-            'total_logs' => (clone $this->latestLogsForTable($filters))->count(),
-            'max_power' => round((float) ((clone $query)->max('power') ?? 0), 2),
-            'avg_power' => round((float) ((clone $query)->avg('power') ?? 0), 2),
-            'avg_voltage' => round((float) ((clone $query)->avg('voltage') ?? 0), 2),
+            'total_logs' => (clone $query)->count(),
+            'max_power' => round(
+                (float) ((clone $query)->max('power') ?? 0),
+                2
+            ),
+            'avg_power' => round(
+                (float) ((clone $query)->avg('power') ?? 0),
+                2
+            ),
+            'avg_voltage' => round(
+                (float) ((clone $query)->avg('voltage') ?? 0),
+                2
+            ),
             'usage_kwh' => round($usageKwh, 4),
             'latest_time' => $lastLog
                 ? $this->formatDateTime($lastLog->observed_at)
@@ -114,6 +122,7 @@ class EnergyController extends Controller
 
         $chartLogs = (clone $query)
             ->orderByDesc('observed_at')
+            ->orderByDesc('id')
             ->take(10)
             ->get()
             ->reverse()
@@ -121,14 +130,17 @@ class EnergyController extends Controller
 
         $chart = [
             'labels' => $chartLogs->map(function (EnergyLog $log) {
-                return $this->formatDateTime($log->observed_at, 'H:i');
+                return $this->formatDateTime(
+                    $log->observed_at,
+                    'H:i'
+                );
             }),
             'power' => $chartLogs->map(function (EnergyLog $log) {
                 return round((float) ($log->power ?? 0), 2);
             }),
             /*
-             * Nilai energy dari PZEM biasanya kumulatif.
-             * Untuk pemakaian periode, sistem memakai calculateEnergyUsage().
+             * Nilai energy pada grafik tetap menampilkan nilai kumulatif
+             * PZEM. Pemakaian periode dihitung dari rekap harian.
              */
             'energy' => $chartLogs->map(function (EnergyLog $log) {
                 return round((float) ($log->energy ?? 0), 4);
@@ -137,9 +149,14 @@ class EnergyController extends Controller
 
         $electricityTariff = $this->getElectricityTariff();
 
+        /*
+         * Estimasi hari, minggu, dan bulan mengambil usage_kwh dari
+         * energy_daily_summaries, bukan menjumlahkan energy kumulatif.
+         */
         $paymentEstimations = $this->buildPaymentEstimations(
             $meterIds,
-            $electricityTariff
+            $electricityTariff,
+            $filters
         );
 
         return view('auth.energy-history', compact(
@@ -155,66 +172,52 @@ class EnergyController extends Controller
 
     public function export(Request $request)
     {
-        $filters = [
-            'meter_id' => $request->input('device_id'),
-            'date_from' => $request->input('date_from'),
-            'date_to' => $request->input('date_to'),
-        ];
-
-        $query = $this->energyLogQuery($filters);
+        $filters = $this->resolveFilters($request);
         $meterIds = $this->getMeterIds($filters);
         $electricityTariff = $this->getElectricityTariff();
 
         /*
-         * Ekspor juga dibuat sama dengan tampilan tabel:
-         * hanya 1 data terbaru untuk setiap meter PZEM.
+         * Ekspor mengikuti tabel utama: satu data terbaru untuk setiap
+         * meter dalam periode filter.
          */
         $exportLogs = $this->latestLogsForTable($filters)
             ->orderByDesc('observed_at')
+            ->orderByDesc('id')
             ->get();
 
-        /*
-         * Range perhitungan tetap memakai seluruh log sesuai filter,
-         * bukan hanya data terbaru, agar estimasi kWh tetap benar.
-         */
-        $firstLogForRange = (clone $query)
-            ->orderBy('observed_at')
-            ->first();
+        $rangeStart = Carbon::parse(
+            $filters['date_from'],
+            $this->applicationTimezone()
+        )->startOfDay();
 
-        $lastLogForRange = (clone $query)
-            ->orderByDesc('observed_at')
-            ->first();
+        $rangeEnd = Carbon::parse(
+            $filters['date_to'],
+            $this->applicationTimezone()
+        )->endOfDay();
 
-        $rangeStart = ! empty($filters['date_from'])
-            ? Carbon::parse($filters['date_from'])->startOfDay()
-            : ($firstLogForRange
-                ? $this->toCarbon($firstLogForRange->observed_at)
-                : null);
-
-        $rangeEnd = ! empty($filters['date_to'])
-            ? Carbon::parse($filters['date_to'])->endOfDay()
-            : ($lastLogForRange
-                ? $this->toCarbon($lastLogForRange->observed_at)
-                : null);
-
-        $usageKwh = ($rangeStart && $rangeEnd)
-            ? $this->calculateEnergyUsage(
-                $meterIds,
-                $rangeStart,
-                $rangeEnd
-            )
-            : 0;
+        $usageKwh = $this->calculateUsageForPeriod(
+            $meterIds,
+            $rangeStart,
+            $rangeEnd
+        );
 
         $estimatedCost = $usageKwh * $electricityTariff;
 
         $summaryRows = collect([[
             'Ruangan' => 'TOTAL',
             'Meter Ruangan' => 'Total Pemakaian Periode',
-            'Waktu' => Carbon::now('Asia/Jakarta')->format('d/m/Y H:i:s'),
+            'Waktu' => Carbon::now(
+                $this->applicationTimezone()
+            )->format('d/m/Y H:i:s'),
             'Tegangan (V)' => '-',
             'Arus (A)' => '-',
             'Daya Total (W)' => '-',
-            'Energi (kWh)' => number_format($usageKwh, 4, ',', '.'),
+            'Energi (kWh)' => number_format(
+                $usageKwh,
+                4,
+                ',',
+                '.'
+            ),
             'Tarif per kWh' => 'Rp ' . number_format(
                 $electricityTariff,
                 0,
@@ -233,7 +236,9 @@ class EnergyController extends Controller
             return [
                 'Ruangan' => $log->energyMeter?->room?->name ?? '-',
                 'Meter Ruangan' => $log->energyMeter?->name ?? '-',
-                'Waktu' => $this->formatDateTime($log->observed_at),
+                'Waktu' => $this->formatDateTime(
+                    $log->observed_at
+                ),
                 'Tegangan (V)' => number_format(
                     (float) ($log->voltage ?? 0),
                     2,
@@ -270,29 +275,90 @@ class EnergyController extends Controller
         );
     }
 
+    /**
+     * Membaca dan menormalkan filter halaman.
+     *
+     * Ketika tanggal kosong, gunakan hari ini agar kartu ringkasan,
+     * grafik, dan tabel memakai periode yang sama.
+     */
+    private function resolveFilters(Request $request): array
+    {
+        $validated = $request->validate([
+            'device_id' => [
+                'nullable',
+                'integer',
+                'min:1',
+            ],
+            'date_from' => [
+                'nullable',
+                'date_format:Y-m-d',
+            ],
+            'date_to' => [
+                'nullable',
+                'date_format:Y-m-d',
+            ],
+        ]);
+
+        $timezone = $this->applicationTimezone();
+        $today = Carbon::now($timezone)->toDateString();
+
+        $dateFrom = $validated['date_from'] ?? null;
+        $dateTo = $validated['date_to'] ?? null;
+
+        if (empty($dateFrom) && empty($dateTo)) {
+            $dateFrom = $today;
+            $dateTo = $today;
+        } elseif (! empty($dateFrom) && empty($dateTo)) {
+            $dateTo = $dateFrom;
+        } elseif (empty($dateFrom) && ! empty($dateTo)) {
+            $dateFrom = $dateTo;
+        }
+
+        $from = Carbon::parse($dateFrom, $timezone)->startOfDay();
+        $to = Carbon::parse($dateTo, $timezone)->endOfDay();
+
+        if ($from->greaterThan($to)) {
+            [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
+        }
+
+        return [
+            'meter_id' => $validated['device_id'] ?? null,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+        ];
+    }
+
+    /**
+     * Mengambil satu log terbaru untuk setiap meter dalam periode filter.
+     */
     private function latestLogsForTable(array $filters)
     {
         $latestLogIds = (clone $this->energyLogQuery($filters))
             ->whereNotNull('energy_meter_id')
-            ->selectRaw('MAX(id) as id')
+            ->selectRaw('MAX(id) AS id')
             ->groupBy('energy_meter_id')
             ->pluck('id')
             ->filter()
             ->values();
 
-        return EnergyLog::with('energyMeter.room')
+        return EnergyLog::query()
+            ->with('energyMeter.room')
             ->whereIn('id', $latestLogIds);
     }
 
     private function energyLogQuery(array $filters)
     {
-        $query = EnergyLog::with('energyMeter.room')
+        $query = EnergyLog::query()
+            ->with('energyMeter.room')
             ->whereHas('energyMeter', function ($meterQuery) {
                 $meterQuery->where('user_id', Auth::id());
             });
 
         if (! empty($filters['meter_id'])) {
-            $query->where('energy_meter_id', $filters['meter_id']);
+            $query->where(
+                'energy_meter_id',
+                $filters['meter_id']
+            );
         }
 
         if (! empty($filters['date_from'])) {
@@ -329,43 +395,100 @@ class EnergyController extends Controller
 
     private function getElectricityTariff(): float
     {
-        $systemSetting = SystemSetting::where(
-            'user_id',
-            Auth::id()
-        )->first();
+        $systemSetting = SystemSetting::query()
+            ->where('user_id', Auth::id())
+            ->first();
 
-        return (float) ($systemSetting?->electricity_tariff ?? 1444);
+        return max(
+            0,
+            (float) ($systemSetting?->electricity_tariff
+                ?? self::DEFAULT_TARIFF)
+        );
     }
 
+    /**
+     * Membuat estimasi pembayaran berdasarkan filter yang diterapkan.
+     *
+     * - Periode Terpilih memakai date_from sampai date_to.
+     * - Hari Terpilih memakai tanggal selesai filter.
+     * - Minggu Terpilih memakai awal minggu sampai tanggal selesai filter.
+     * - Bulan Terpilih memakai awal bulan sampai tanggal selesai filter.
+     *
+     * Dengan struktur ini, estimasi rentang filter tetap tersedia tanpa
+     * menghilangkan estimasi hari, minggu, dan bulan.
+     */
     private function buildPaymentEstimations(
         $meterIds,
-        float $tariff
+        float $tariff,
+        array $filters
     ): array {
-        $now = Carbon::now('Asia/Jakarta');
+        $timezone = $this->applicationTimezone();
+        $today = Carbon::now($timezone);
 
-        return [
+        $selectedStart = Carbon::parse(
+            $filters['date_from'] ?? $today->toDateString(),
+            $timezone
+        )->startOfDay();
+
+        $referenceDate = Carbon::parse(
+            $filters['date_to'] ?? $today->toDateString(),
+            $timezone
+        );
+
+        /*
+         * Untuk tanggal hari ini, batas akhir memakai waktu sekarang agar
+         * sistem tidak menghitung waktu yang belum terjadi. Untuk tanggal
+         * lampau, batas akhirnya adalah akhir hari.
+         */
+        $referenceEnd = $referenceDate->isSameDay($today)
+            ? $today->copy()
+            : $referenceDate->copy()->endOfDay();
+
+        $usingToday = $referenceDate->isSameDay($today);
+        $singleSelectedDay = $selectedStart->isSameDay($referenceDate);
+
+        $estimations = [
             'today' => $this->buildPaymentEstimation(
-                label: 'Hari Ini',
-                startDate: $now->copy()->startOfDay(),
-                endDate: $now->copy(),
+                label: $usingToday ? 'Hari Ini' : 'Hari Terpilih',
+                startDate: $referenceDate->copy()->startOfDay(),
+                endDate: $referenceEnd->copy(),
                 meterIds: $meterIds,
                 tariff: $tariff
             ),
             'week' => $this->buildPaymentEstimation(
-                label: 'Minggu Ini',
-                startDate: $now->copy()->startOfWeek(),
-                endDate: $now->copy(),
+                label: $usingToday ? 'Minggu Ini' : 'Minggu Terpilih',
+                startDate: $referenceDate->copy()->startOfWeek(),
+                endDate: $referenceEnd->copy(),
                 meterIds: $meterIds,
                 tariff: $tariff
             ),
             'month' => $this->buildPaymentEstimation(
-                label: 'Bulan Ini',
-                startDate: $now->copy()->startOfMonth(),
-                endDate: $now->copy(),
+                label: $usingToday ? 'Bulan Ini' : 'Bulan Terpilih',
+                startDate: $referenceDate->copy()->startOfMonth(),
+                endDate: $referenceEnd->copy(),
                 meterIds: $meterIds,
                 tariff: $tariff
             ),
         ];
+
+        /*
+         * Untuk rentang lebih dari satu hari, tambahkan estimasi yang sama
+         * persis dengan date_from dan date_to. Untuk satu hari, kartu ini
+         * tidak ditambahkan agar tidak menduplikasi kartu Hari Terpilih.
+         */
+        if (! $singleSelectedDay) {
+            return [
+                'selected' => $this->buildPaymentEstimation(
+                    label: 'Periode Terpilih',
+                    startDate: $selectedStart->copy(),
+                    endDate: $referenceEnd->copy(),
+                    meterIds: $meterIds,
+                    tariff: $tariff
+                ),
+            ] + $estimations;
+        }
+
+        return $estimations;
     }
 
     private function buildPaymentEstimation(
@@ -375,7 +498,7 @@ class EnergyController extends Controller
         $meterIds,
         float $tariff
     ): array {
-        $usageKwh = $this->calculateEnergyUsage(
+        $usageKwh = $this->calculateUsageForPeriod(
             $meterIds,
             $startDate,
             $endDate
@@ -388,20 +511,71 @@ class EnergyController extends Controller
             'period' => $startDate->format('d/m/Y')
                 . ' - '
                 . $endDate->format('d/m/Y'),
-            'usage_kwh' => round($usageKwh, 4),
+            'usage_kwh' => round($usageKwh, 6),
             'tariff' => round($tariff, 2),
-            'estimated_cost' => round($estimatedCost),
-            'formula' => round($usageKwh, 4)
+            /*
+             * Dua angka desimal dipertahankan supaya pemakaian kecil tidak
+             * selalu terlihat sebagai Rp 0, Rp 1, atau angka bulat yang sama.
+             */
+            'estimated_cost' => round($estimatedCost, 2),
+            'formula' => round($usageKwh, 6)
                 . ' kWh x Rp '
                 . number_format($tariff, 0, ',', '.'),
         ];
     }
 
-    /*
-     * PZEM mengirim nilai energy kumulatif.
-     * Jadi pemakaian periode bukan SUM(energy), tetapi selisih antar pembacaan.
+    /**
+     * Menghitung pemakaian periode.
+     *
+     * Prioritas pertama adalah energy_daily_summaries karena nilai energy
+     * PZEM bersifat kumulatif dan raw log hanya disimpan beberapa hari.
+     * Jika tabel rekap belum tersedia atau belum memiliki data untuk
+     * periode tersebut, sistem menggunakan perhitungan raw log yang aman.
      */
-    private function calculateEnergyUsage(
+    private function calculateUsageForPeriod(
+        $meterIds,
+        Carbon $startDate,
+        Carbon $endDate
+    ): float {
+        if ($meterIds->isEmpty()) {
+            return 0;
+        }
+
+        if (Schema::hasTable('energy_daily_summaries')) {
+            $summaryQuery = EnergyDailySummary::query()
+                ->where('user_id', Auth::id())
+                ->whereIn('energy_meter_id', $meterIds)
+                ->whereBetween('summary_date', [
+                    $startDate->toDateString(),
+                    $endDate->toDateString(),
+                ]);
+
+            if ((clone $summaryQuery)->exists()) {
+                return round(
+                    max(
+                        0,
+                        (float) $summaryQuery->sum('usage_kwh')
+                    ),
+                    6
+                );
+            }
+        }
+
+        return $this->calculateEnergyUsageFromLogs(
+            $meterIds,
+            $startDate,
+            $endDate
+        );
+    }
+
+    /**
+     * Fallback perhitungan dari raw log.
+     *
+     * Ketika nilai energy menurun, sistem tidak menambahkan nilai baru
+     * sebagai pemakaian. Penurunan dapat berarti reset PZEM, data uji,
+     * pergantian meter, atau data yang datang tidak berurutan.
+     */
+    private function calculateEnergyUsageFromLogs(
         $meterIds,
         Carbon $startDate,
         Carbon $endDate
@@ -418,13 +592,18 @@ class EnergyController extends Controller
                 ->where('observed_at', '<', $startDate)
                 ->whereNotNull('energy')
                 ->orderByDesc('observed_at')
+                ->orderByDesc('id')
                 ->first();
 
             $logs = EnergyLog::query()
                 ->where('energy_meter_id', $meterId)
-                ->whereBetween('observed_at', [$startDate, $endDate])
+                ->whereBetween(
+                    'observed_at',
+                    [$startDate, $endDate]
+                )
                 ->whereNotNull('energy')
                 ->orderBy('observed_at')
+                ->orderBy('id')
                 ->get([
                     'id',
                     'energy_meter_id',
@@ -433,44 +612,53 @@ class EnergyController extends Controller
                 ]);
 
             $previousEnergy = $previousLog
-                ? (float) $previousLog->energy
+                ? max(0, (float) $previousLog->energy)
                 : null;
 
             foreach ($logs as $log) {
-                $currentEnergy = (float) $log->energy;
+                $currentEnergy = max(
+                    0,
+                    (float) $log->energy
+                );
 
                 if ($previousEnergy === null) {
                     $previousEnergy = $currentEnergy;
                     continue;
                 }
 
-                /*
-                 * Normal:
-                 * currentEnergy >= previousEnergy
-                 * usage = selisih.
-                 *
-                 * Kalau PZEM reset dan nilai energy turun:
-                 * currentEnergy < previousEnergy
-                 * usage dianggap mulai dari currentEnergy.
-                 */
-                $totalUsage += $currentEnergy >= $previousEnergy
-                    ? $currentEnergy - $previousEnergy
-                    : max(0, $currentEnergy);
+                if ($currentEnergy >= $previousEnergy) {
+                    $totalUsage += (
+                        $currentEnergy - $previousEnergy
+                    );
+                }
 
+                /*
+                 * Saat nilai turun, baseline dipindahkan ke nilai terbaru
+                 * tanpa menambahkannya sebagai pemakaian baru.
+                 */
                 $previousEnergy = $currentEnergy;
             }
         }
 
-        return round($totalUsage, 4);
+        return round(max(0, $totalUsage), 6);
     }
 
     private function toCarbon($value): Carbon
     {
-        if ($value instanceof Carbon) {
-            return $value->copy();
+        $timezone = $this->applicationTimezone();
+
+        if ($value instanceof CarbonInterface) {
+            /*
+             * observed_at sekarang disimpan langsung dalam Asia/Jakarta.
+             * Jangan konversi lagi karena akan menambah tujuh jam.
+             */
+            return Carbon::parse(
+                $value->format('Y-m-d H:i:s'),
+                $timezone
+            );
         }
 
-        return Carbon::parse($value);
+        return Carbon::parse((string) $value, $timezone);
     }
 
     private function formatDateTime(
@@ -481,8 +669,18 @@ class EnergyController extends Controller
             return null;
         }
 
-        return $this->toCarbon($value)
-            ->timezone('Asia/Jakarta')
-            ->format($format);
+        return $this->toCarbon($value)->format($format);
+    }
+
+    private function applicationTimezone(): string
+    {
+        $timezone = trim((string) config(
+            'app.timezone',
+            self::DEFAULT_TIMEZONE
+        ));
+
+        return $timezone !== ''
+            ? $timezone
+            : self::DEFAULT_TIMEZONE;
     }
 }

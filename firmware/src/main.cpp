@@ -1,3 +1,4 @@
+#include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <PubSubClient.h>
@@ -9,17 +10,21 @@
 #include <ArduinoOTA.h>
 #include <esp_task_wdt.h>
 #include <esp_idf_version.h>
+#include <esp_system.h>
+#include <limits.h>
 
 // ============================================================================
 // SMARTVOLT ESP32 PROFESSIONAL FIRMWARE
-// Versi: 1.0.0
+// Versi: 1.3.0
 //
 // Fitur utama:
 // - Safe boot: semua relay OFF sebelum proses lain dijalankan.
 // - Konfigurasi tersimpan di Preferences/NVS.
 // - Portal konfigurasi melalui hotspot SmartVolt-Setup-XXXX.
-// - Wi-Fi dan MQTT auto reconnect.
-// - Telemetry normal setiap 1 menit.
+// - Wi-Fi dan MQTT auto reconnect tanpa memicu burst telemetry.
+// - PZEM health state dengan debouncing, retry, validasi kualitas, dan pemulihan UART.
+// - Jeda aman setelah relay berpindah untuk mengurangi gangguan EMI pada UART.
+// - Telemetry normal setiap 1 menit dengan anti-burst dan sample freshness.
 // - Retry telemetry bertahap: 5, 10, 20, 30, lalu 60 detik.
 // - Heartbeat/status MQTT setiap 20 detik + Last Will offline.
 // - Validasi command MQTT yang ketat dan perlindungan command duplikat.
@@ -37,7 +42,7 @@
 // ============================================================================
 // IDENTITAS FIRMWARE
 // ============================================================================
-const char* FIRMWARE_VERSION = "1.0.0";
+const char* FIRMWARE_VERSION = "1.3.0";
 const char* DEVICE_PRODUCT = "SmartVolt";
 
 // ============================================================================
@@ -46,23 +51,22 @@ const char* DEVICE_PRODUCT = "SmartVolt";
 // Sesudah firmware terpasang, konfigurasi dapat diubah tanpa coding ulang
 // melalui portal konfigurasi.
 // ============================================================================
-const char* DEFAULT_WIFI_SSID = "Kayan";
-const char* DEFAULT_WIFI_PASSWORD = "11111111";
+const char* DEFAULT_WIFI_SSID = "batam";
+const char* DEFAULT_WIFI_PASSWORD = "batam2026";
 
-const char* DEFAULT_SERVER_HOST = "172.20.10.3";
+const char* DEFAULT_SERVER_HOST = "192.168.215.135";
 const uint16_t DEFAULT_SERVER_PORT = 8000;
 const char* DEFAULT_API_KEY = "smartvolt123";
 
-const char* DEFAULT_MQTT_HOST = "172.20.10.3";
+const char* DEFAULT_MQTT_HOST = "192.168.215.135";
 const uint16_t DEFAULT_MQTT_PORT = 1883;
 const char* DEFAULT_MQTT_USERNAME = "";
 const char* DEFAULT_MQTT_PASSWORD = "";
 
+// Tambahkan tiga konfigurasi ini
 const char* DEFAULT_ESP_UNIT_ID = "2";
 const char* DEFAULT_METER_CODE = "main";
-
-// Ganti melalui portal konfigurasi setelah pengujian pertama.
-const char* DEFAULT_OTA_PASSWORD = "SmartVoltOTA123";
+const char* DEFAULT_OTA_PASSWORD = "";
 
 // ============================================================================
 // HARDWARE CONFIGURATION
@@ -95,10 +99,26 @@ const unsigned long WIFI_CONNECT_TIMEOUT_MS = 25000UL;
 const unsigned long WIFI_RECONNECT_INTERVAL_MS = 7000UL;
 const unsigned long MQTT_RECONNECT_INTERVAL_MS = 5000UL;
 
-const unsigned long PZEM_READ_INTERVAL_MS = 5000UL;
-const unsigned long TELEMETRY_INTERVAL_MS = 60000UL;       // 1 menit
-const unsigned long SENSOR_RETRY_INTERVAL_MS = 10000UL;    // PZEM invalid
-const unsigned long HEARTBEAT_INTERVAL_MS = 20000UL;       // 20 detik
+// PZEM dipantau terpisah dari jaringan. Satu pembacaan library mengambil
+// seluruh register dan getter berikutnya menggunakan cache internal yang sama.
+const unsigned long PZEM_POLL_INTERVAL_MS = 10000UL;         // polling 10 detik
+const unsigned long PZEM_WARMUP_MS = 12000UL;                // stabilisasi setelah boot
+const unsigned long PZEM_RETRY_DELAY_MS = 300UL;             // jeda retry satu siklus
+const unsigned long PZEM_SAMPLE_MAX_AGE_MS = 25000UL;        // sampel layak dikirim
+const unsigned long PZEM_DEGRADED_MAX_AGE_MS = 120000UL;     // last-known value maksimal 2 menit
+const unsigned long PZEM_AFTER_RELAY_QUIET_MS = 1500UL;      // hindari EMI sesaat relay
+const unsigned long PZEM_UART_RECOVERY_COOLDOWN_MS = 120000UL;
+const unsigned long PZEM_ERROR_LOG_INTERVAL_MS = 60000UL;
+const uint8_t PZEM_READ_RETRY_COUNT = 3;
+const uint8_t PZEM_TRANSIENT_FAILURE_TOLERANCE = 2;           // tidak langsung degraded
+const uint8_t PZEM_UART_RECOVERY_THRESHOLD = 5;
+const uint8_t PZEM_OFFLINE_THRESHOLD = 12;                   // sekitar 2 menit gagal
+const uint8_t PZEM_RECOVERY_SUCCESS_THRESHOLD = 2;
+
+const unsigned long TELEMETRY_INTERVAL_MS = 60000UL;         // tepat 1 menit
+const unsigned long TELEMETRY_MIN_GAP_MS = 60000UL;          // tidak lebih cepat dari 1 menit
+const unsigned long SENSOR_RETRY_INTERVAL_MS = 60000UL;      // tidak spam HTTP
+const unsigned long HEARTBEAT_INTERVAL_MS = 20000UL;         // 20 detik
 
 const unsigned long HTTP_CONNECT_TIMEOUT_MS = 5000UL;
 const unsigned long HTTP_RESPONSE_TIMEOUT_MS = 10000UL;
@@ -143,7 +163,16 @@ struct PzemReading {
   unsigned long readAtMillis = 0;
 };
 
+enum class PzemHealth {
+  WarmingUp,
+  Recovering,
+  Healthy,
+  Degraded,
+  Offline
+};
+
 PzemReading latestPzem;
+PzemHealth pzemHealth = PzemHealth::WarmingUp;
 PZEM004Tv30 pzem(Serial2, PZEM_RX_PIN, PZEM_TX_PIN);
 
 // ============================================================================
@@ -163,19 +192,30 @@ bool relay2State = false;
 
 bool wifiWasConnected = false;
 bool otaInitialized = false;
+bool otaInitializationAttempted = false;
 bool watchdogInitialized = false;
 bool portalRequestedAtBoot = false;
 
 unsigned long lastWiFiReconnectMillis = 0;
 unsigned long lastMqttReconnectMillis = 0;
 unsigned long lastPzemReadMillis = 0;
+unsigned long lastRelayChangeMillis = 0;
+unsigned long lastPzemSuccessMillis = 0;
+unsigned long lastPzemUartRecoveryMillis = 0;
+unsigned long lastPzemErrorLogMillis = 0;
 unsigned long lastHeartbeatMillis = 0;
+unsigned long firmwareStartedAtMillis = 0;
+uint8_t pzemConsecutiveFailures = 0;
+uint8_t pzemConsecutiveSuccesses = 0;
+uint32_t pzemTotalReadSuccesses = 0;
+uint32_t pzemTotalReadFailures = 0;
 
 unsigned long lastTelemetryAttemptMillis = 0;
 unsigned long lastTelemetrySuccessMillis = 0;
-unsigned long telemetryWaitIntervalMillis = 0;
+unsigned long telemetryWaitIntervalMillis = TELEMETRY_INTERVAL_MS;
 uint8_t telemetryFailureCount = 0;
-bool telemetryImmediate = true;
+bool telemetryImmediate = false;
+bool telemetryForceImmediate = false;
 
 unsigned long setupButtonPressedAt = 0;
 bool setupButtonActionTriggered = false;
@@ -249,10 +289,11 @@ uint16_t parsePortOrDefault(const String& text, uint16_t fallback) {
 }
 
 bool isValidConfig(const DeviceConfig& candidate) {
+  // API key bersifat opsional. Konfigurasi tetap valid ketika backend
+  // SmartVolt belum menggunakan autentikasi X-API-KEY.
   return candidate.wifiSsid.length() > 0 &&
          candidate.serverHost.length() > 0 &&
          candidate.serverPort > 0 &&
-         candidate.apiKey.length() > 0 &&
          candidate.mqttHost.length() > 0 &&
          candidate.mqttPort > 0 &&
          candidate.espUnitId.length() > 0 &&
@@ -272,14 +313,21 @@ void initializeRelaysSafe() {
 
   relay1State = false;
   relay2State = false;
+  lastRelayChangeMillis = millis();
 }
 
 void allRelaysOff() {
+  const bool stateChanged = relay1State || relay2State;
+
   relay1State = false;
   relay2State = false;
 
   digitalWrite(RELAY1_PIN, relayOffLevel());
   digitalWrite(RELAY2_PIN, relayOffLevel());
+
+  if (stateChanged) {
+    lastRelayChangeMillis = millis();
+  }
 
   Serial.println("[RELAY] Semua relay OFF");
 }
@@ -297,6 +345,7 @@ bool setRelayByCode(const String& relayCode, bool requestedState, bool& actualSt
 
   const int expectedLevel = requestedState ? relayOnLevel() : relayOffLevel();
   digitalWrite(pin, expectedLevel);
+  lastRelayChangeMillis = millis();
   delay(2);
 
   const int actualLevel = digitalRead(pin);
@@ -463,7 +512,7 @@ String buildConfigurationPage(const String& message = "") {
   page += String(config.serverPort);
   page += F("'></label></div>");
 
-  page += F("<div class='full'><label>Device API Key<input type='password' name='apikey' placeholder='Kosongkan untuk mempertahankan API key lama'></label></div>");
+  page += F("<div class='full'><label>Device API Key (opsional)<input type='password' name='apikey' placeholder='Kosongkan untuk mempertahankan API key lama'></label></div>");
 
   page += F("<div><label>MQTT Host/IP<input name='mhost' required value='");
   page += htmlEscape(config.mqttHost);
@@ -612,6 +661,7 @@ void startConfigurationPortal() {
   while (true) {
     dnsServer.processNextRequest();
     setupWebServer.handleClient();
+    yield();
     delay(2);
   }
 }
@@ -722,11 +772,16 @@ void feedWatchdog() {
 // OTA
 // ============================================================================
 void initializeOtaIfNeeded() {
-  if (otaInitialized || WiFi.status() != WL_CONNECTED) {
+  // Fungsi dipanggil dari event Wi-Fi dan loop. Penanda ini mencegah
+  // validasi serta pesan OTA dicetak berulang kali setiap 10 ms.
+  if (otaInitializationAttempted || WiFi.status() != WL_CONNECTED) {
     return;
   }
 
+  otaInitializationAttempted = true;
+
   if (config.otaPassword.length() < 8) {
+    otaInitialized = false;
     Serial.println("[OTA] Dinonaktifkan: password OTA belum memenuhi minimal 8 karakter.");
     return;
   }
@@ -774,8 +829,9 @@ void printNetworkInformation() {
   Serial.println(" dBm");
 }
 
-void requestImmediateTelemetry() {
+void requestImmediateTelemetry(bool force = false) {
   telemetryImmediate = true;
+  telemetryForceImmediate = telemetryForceImmediate || force;
 }
 
 void onWiFiConnected() {
@@ -785,7 +841,6 @@ void onWiFiConnected() {
   wifiWasConnected = true;
   lastMqttReconnectMillis = 0;
   telemetryFailureCount = 0;
-  requestImmediateTelemetry();
 
   initializeOtaIfNeeded();
 }
@@ -856,70 +911,284 @@ void maintainWiFi() {
 }
 
 // ============================================================================
-// PZEM
+// PZEM: HEALTH STATE, VALIDASI, RETRY, DAN PEMULIHAN UART
 // ============================================================================
-bool readPzem(PzemReading& reading, bool verbose) {
-  reading.voltage = pzem.voltage();
-  reading.current = pzem.current();
-  reading.power = pzem.power();
-  reading.energy = pzem.energy();
-  reading.frequency = pzem.frequency();
-  reading.powerFactor = pzem.pf();
-  reading.readAtMillis = millis();
+const char* pzemHealthName(PzemHealth health) {
+  switch (health) {
+    case PzemHealth::WarmingUp:  return "warming_up";
+    case PzemHealth::Recovering: return "recovering";
+    case PzemHealth::Healthy:    return "healthy";
+    case PzemHealth::Degraded:   return "degraded";
+    case PzemHealth::Offline:    return "offline";
+  }
+  return "unknown";
+}
 
-  reading.valid = !isnan(reading.voltage) &&
-                  !isnan(reading.current) &&
-                  !isnan(reading.power);
+bool isFiniteFloat(float value) {
+  return !isnan(value) && !isinf(value);
+}
 
-  if (!reading.valid) {
-    if (verbose) {
-      Serial.println("[PZEM] Data belum valid.");
-      Serial.println("[PZEM] Periksa TX/RX, VCC, GND, sumber AC, dan CT clamp.");
-    }
+unsigned long pzemSampleAgeMillis(unsigned long now = millis()) {
+  if (!latestPzem.valid || lastPzemSuccessMillis == 0) {
+    return ULONG_MAX;
+  }
+  return now - lastPzemSuccessMillis;
+}
+
+bool hasFreshPzemSample(unsigned long maximumAgeMillis) {
+  unsigned long age = pzemSampleAgeMillis();
+  return latestPzem.valid && age != ULONG_MAX && age <= maximumAgeMillis;
+}
+
+void drainPzemRxBuffer() {
+  while (Serial2.available() > 0) {
+    Serial2.read();
+  }
+}
+
+void recoverPzemUart() {
+  unsigned long now = millis();
+  if (lastPzemUartRecoveryMillis != 0 &&
+      now - lastPzemUartRecoveryMillis < PZEM_UART_RECOVERY_COOLDOWN_MS) {
+    return;
+  }
+
+  lastPzemUartRecoveryMillis = now;
+  Serial.println("[PZEM] Memulihkan UART2 karena kegagalan komunikasi berulang.");
+
+  Serial2.flush();
+  drainPzemRxBuffer();
+  Serial2.end();
+  delay(100);
+  Serial2.begin(9600, SERIAL_8N1, PZEM_RX_PIN, PZEM_TX_PIN);
+  delay(250); // lebih lama dari cache internal library (200 ms)
+  drainPzemRxBuffer();
+
+  Serial.println("[PZEM] UART2 selesai diinisialisasi ulang.");
+}
+
+bool isPzemReadingSane(const PzemReading& reading) {
+  // Nilai inti wajib masuk rentang aman. Frequency dan PF bersifat opsional:
+  // kegagalan satu field tambahan tidak boleh menjatuhkan seluruh sensor.
+  const bool voltageValid = isFiniteFloat(reading.voltage) &&
+                            reading.voltage >= 80.0F &&
+                            reading.voltage <= 300.0F;
+  const bool currentValid = isFiniteFloat(reading.current) &&
+                            reading.current >= 0.0F &&
+                            reading.current <= 120.0F;
+  const bool powerValid = isFiniteFloat(reading.power) &&
+                          reading.power >= 0.0F &&
+                          reading.power <= 30000.0F;
+  const bool energyValid = isFiniteFloat(reading.energy) &&
+                           reading.energy >= 0.0F &&
+                           reading.energy <= 100000.0F;
+
+  if (!voltageValid || !currentValid || !powerValid || !energyValid) {
     return false;
   }
 
-  if (isnan(reading.energy)) {
-    reading.energy = 0.0F;
+  // Tolak nilai daya yang jauh melampaui daya semu. Toleransi lebar dipakai
+  // untuk noise dan resolusi sensor pada beban kecil.
+  const float apparentPower = reading.voltage * reading.current;
+  if (reading.current > 0.05F &&
+      reading.power > apparentPower * 1.30F + 10.0F) {
+    return false;
   }
 
-  if (verbose) {
-    Serial.println();
-    Serial.println("[PZEM] Data terbaca:");
-    Serial.printf("[PZEM] Voltage      : %.2f V\n", reading.voltage);
-    Serial.printf("[PZEM] Current      : %.3f A\n", reading.current);
-    Serial.printf("[PZEM] Power        : %.2f W\n", reading.power);
-    Serial.printf("[PZEM] Energy       : %.3f kWh\n", reading.energy);
+  if (isFiniteFloat(reading.frequency) &&
+      (reading.frequency < 40.0F || reading.frequency > 70.0F)) {
+    return false;
+  }
 
-    if (!isnan(reading.frequency)) {
-      Serial.printf("[PZEM] Frequency    : %.2f Hz\n", reading.frequency);
-    }
-
-    if (!isnan(reading.powerFactor)) {
-      Serial.printf("[PZEM] Power Factor : %.2f\n", reading.powerFactor);
-    }
+  if (isFiniteFloat(reading.powerFactor) &&
+      (reading.powerFactor < 0.0F || reading.powerFactor > 1.05F)) {
+    return false;
   }
 
   return true;
 }
 
+bool readPzemOnce(PzemReading& reading) {
+  drainPzemRxBuffer();
+
+  PzemReading candidate;
+
+  // Getter voltage memicu satu transaksi Modbus untuk semua register.
+  // Jika transaksi pertama gagal, jangan membaca getter lain karena library
+  // dapat mengembalikan cache lama selama 200 ms.
+  candidate.voltage = pzem.voltage();
+  if (!isFiniteFloat(candidate.voltage)) {
+    return false;
+  }
+
+  candidate.current = pzem.current();
+  candidate.power = pzem.power();
+  candidate.energy = pzem.energy();
+  candidate.frequency = pzem.frequency();
+  candidate.powerFactor = pzem.pf();
+
+  // Frequency/PF tidak menentukan hidup-matinya sensor. Pada beban sangat
+  // kecil PF dapat nol atau tidak stabil. Gunakan NAN agar payload mengabaikan
+  // field yang tidak dapat dipercaya.
+  if (!isFiniteFloat(candidate.frequency) ||
+      candidate.frequency < 40.0F ||
+      candidate.frequency > 70.0F) {
+    candidate.frequency = NAN;
+  }
+
+  if (!isFiniteFloat(candidate.powerFactor) ||
+      candidate.powerFactor < 0.0F ||
+      candidate.powerFactor > 1.05F) {
+    const float apparentPower = candidate.voltage * candidate.current;
+    if (candidate.current <= 0.05F) {
+      candidate.powerFactor = 0.0F;
+    } else if (apparentPower > 0.0F) {
+      candidate.powerFactor = constrain(candidate.power / apparentPower, 0.0F, 1.0F);
+    } else {
+      candidate.powerFactor = NAN;
+    }
+  }
+
+  candidate.readAtMillis = millis();
+  candidate.valid = isPzemReadingSane(candidate);
+
+  if (!candidate.valid) {
+    return false;
+  }
+
+  reading = candidate;
+  return true;
+}
+
+bool readPzemStable(PzemReading& reading, bool verbose) {
+  for (uint8_t attempt = 1; attempt <= PZEM_READ_RETRY_COUNT; attempt++) {
+    feedWatchdog();
+
+    if (readPzemOnce(reading)) {
+      if (verbose) {
+        Serial.println();
+        Serial.println("[PZEM] Data terbaca:");
+        Serial.printf("[PZEM] Voltage      : %.2f V\n", reading.voltage);
+        Serial.printf("[PZEM] Current      : %.3f A\n", reading.current);
+        Serial.printf("[PZEM] Power        : %.2f W\n", reading.power);
+        Serial.printf("[PZEM] Energy       : %.3f kWh\n", reading.energy);
+        Serial.printf("[PZEM] Frequency    : %.2f Hz\n", reading.frequency);
+        Serial.printf("[PZEM] Power Factor : %.2f\n", reading.powerFactor);
+      }
+      return true;
+    }
+
+    drainPzemRxBuffer();
+    if (attempt < PZEM_READ_RETRY_COUNT) {
+      delay(PZEM_RETRY_DELAY_MS);
+    }
+  }
+
+  return false;
+}
+
+void setPzemHealth(PzemHealth newHealth) {
+  if (newHealth == pzemHealth) {
+    return;
+  }
+
+  PzemHealth previous = pzemHealth;
+  pzemHealth = newHealth;
+
+  Serial.print("[PZEM] Status: ");
+  Serial.print(pzemHealthName(previous));
+  Serial.print(" -> ");
+  Serial.println(pzemHealthName(newHealth));
+
+  lastHeartbeatMillis = 0;
+
+  // Kirim segera hanya ketika sensor benar-benar pulih. Scheduler tetap
+  // menerapkan jeda minimum sehingga tidak terjadi burst telemetry.
+  if (newHealth == PzemHealth::Healthy) {
+    requestImmediateTelemetry(false);
+  }
+}
+
 void updatePzemReading(bool force = false, bool verbose = false) {
   unsigned long now = millis();
 
-  if (!force && lastPzemReadMillis != 0 && now - lastPzemReadMillis < PZEM_READ_INTERVAL_MS) {
+  if (!force && now - firmwareStartedAtMillis < PZEM_WARMUP_MS) {
+    setPzemHealth(PzemHealth::WarmingUp);
+    return;
+  }
+
+  // Relay dapat menimbulkan lonjakan EMI singkat. Hindari transaksi UART tepat
+  // setelah perubahan relay agar satu transient tidak dianggap kegagalan sensor.
+  if (!force && lastRelayChangeMillis != 0 &&
+      now - lastRelayChangeMillis < PZEM_AFTER_RELAY_QUIET_MS) {
+    return;
+  }
+
+  if (!force && lastPzemReadMillis != 0 &&
+      now - lastPzemReadMillis < PZEM_POLL_INTERVAL_MS) {
     return;
   }
 
   lastPzemReadMillis = now;
-  bool previousValid = latestPzem.valid;
-  bool currentValid = readPzem(latestPzem, verbose);
+  PzemReading candidate;
+  bool success = readPzemStable(candidate, verbose);
 
-  if (currentValid != previousValid) {
-    Serial.print("[PZEM] Status berubah menjadi: ");
-    Serial.println(currentValid ? "VALID" : "TIDAK VALID");
+  if (success) {
+    latestPzem = candidate;
+    latestPzem.valid = true;
+    lastPzemSuccessMillis = candidate.readAtMillis;
+    pzemTotalReadSuccesses++;
+    pzemConsecutiveFailures = 0;
 
-    requestImmediateTelemetry();
-    lastHeartbeatMillis = 0;
+    if (pzemConsecutiveSuccesses < 255) {
+      pzemConsecutiveSuccesses++;
+    }
+
+    if (pzemHealth == PzemHealth::Healthy ||
+        pzemConsecutiveSuccesses >= PZEM_RECOVERY_SUCCESS_THRESHOLD) {
+      setPzemHealth(PzemHealth::Healthy);
+    } else {
+      setPzemHealth(PzemHealth::Recovering);
+    }
+    return;
+  }
+
+  pzemTotalReadFailures++;
+  pzemConsecutiveSuccesses = 0;
+  if (pzemConsecutiveFailures < 255) {
+    pzemConsecutiveFailures++;
+  }
+
+  if (pzemConsecutiveFailures >= PZEM_UART_RECOVERY_THRESHOLD) {
+    recoverPzemUart();
+  }
+
+  unsigned long age = pzemSampleAgeMillis(now);
+  bool lastValueUsable = latestPzem.valid &&
+                         age != ULONG_MAX &&
+                         age <= PZEM_DEGRADED_MAX_AGE_MS;
+
+  if (lastValueUsable &&
+      pzemConsecutiveFailures <= PZEM_TRANSIENT_FAILURE_TOLERANCE &&
+      (pzemHealth == PzemHealth::Healthy || pzemHealth == PzemHealth::Recovering)) {
+    // Gangguan sesaat: pertahankan status sebelumnya dan gunakan last-known
+    // sample hanya untuk tampilan. Telemetry tetap menunggu sampel baru.
+  } else if (lastValueUsable &&
+             pzemConsecutiveFailures < PZEM_OFFLINE_THRESHOLD) {
+    setPzemHealth(PzemHealth::Degraded);
+  } else {
+    setPzemHealth(PzemHealth::Offline);
+  }
+
+  if (verbose || lastPzemErrorLogMillis == 0 ||
+      now - lastPzemErrorLogMillis >= PZEM_ERROR_LOG_INTERVAL_MS) {
+    lastPzemErrorLogMillis = now;
+    Serial.printf(
+      "[PZEM] Pembacaan gagal (%u berturut-turut, total %lu).\n",
+      pzemConsecutiveFailures,
+      static_cast<unsigned long>(pzemTotalReadFailures)
+    );
+    Serial.println("[PZEM] Cek AC, 5V, GND, TX/RX, level logika, dan gangguan kabel.");
   }
 }
 
@@ -970,9 +1239,14 @@ bool sendRawHttpPost(const String& path, const String& payload, int& httpCode) {
 
   httpClient.print("Content-Type: application/json\r\n");
   httpClient.print("Accept: application/json\r\n");
-  httpClient.print("X-API-KEY: ");
-  httpClient.print(config.apiKey);
-  httpClient.print("\r\n");
+
+  // Header hanya dikirim ketika API key memang dikonfigurasi.
+  if (config.apiKey.length() > 0) {
+    httpClient.print("X-API-KEY: ");
+    httpClient.print(config.apiKey);
+    httpClient.print("\r\n");
+  }
+
   httpClient.print("Content-Length: ");
   httpClient.print(payload.length());
   httpClient.print("\r\n");
@@ -1040,11 +1314,19 @@ TelemetryResult sendTelemetry() {
     return TelemetryResult::NetworkError;
   }
 
-  updatePzemReading(true, false);
+  unsigned long now = millis();
+  unsigned long sampleAge = pzemSampleAgeMillis(now);
+  bool readingFresh = pzemHealth == PzemHealth::Healthy &&
+                      latestPzem.valid &&
+                      sampleAge != ULONG_MAX &&
+                      sampleAge <= PZEM_SAMPLE_MAX_AGE_MS;
 
-  if (!latestPzem.valid) {
-    Serial.println("[HTTP] Telemetry listrik tidak dikirim karena PZEM belum valid.");
-    Serial.println("[HTTP] ESP32 tetap dilaporkan online melalui heartbeat MQTT.");
+  // Telemetry tidak memaksa transaksi sensor. Pembacaan PZEM ditangani oleh
+  // scheduler tersendiri agar HTTP, MQTT, dan Modbus tidak saling memicu.
+  if (!readingFresh) {
+    Serial.print("[HTTP] Telemetry ditunda. Status sensor: ");
+    Serial.println(pzemHealthName(pzemHealth));
+    Serial.println("[HTTP] ESP32 tetap online melalui heartbeat MQTT.");
     return TelemetryResult::SensorInvalid;
   }
 
@@ -1095,7 +1377,6 @@ void maintainTelemetry() {
   }
 
   unsigned long now = millis();
-
   bool readyByTime = lastTelemetryAttemptMillis == 0 ||
                      now - lastTelemetryAttemptMillis >= telemetryWaitIntervalMillis;
 
@@ -1103,11 +1384,17 @@ void maintainTelemetry() {
     return;
   }
 
-  if (!readyByTime && telemetryImmediate) {
-    // Permintaan immediate boleh melewati interval tunggu sebelumnya.
+  // Reconnect Wi-Fi/MQTT dan perubahan status sensor tidak boleh menghasilkan
+  // burst data. Perintah manual 't' adalah satu-satunya yang dapat memaksa.
+  if (telemetryImmediate && !telemetryForceImmediate &&
+      lastTelemetrySuccessMillis != 0 &&
+      now - lastTelemetrySuccessMillis < TELEMETRY_MIN_GAP_MS) {
+    return;
   }
 
+  bool forceRequest = telemetryForceImmediate;
   telemetryImmediate = false;
+  telemetryForceImmediate = false;
   lastTelemetryAttemptMillis = now;
 
   TelemetryResult result = sendTelemetry();
@@ -1116,16 +1403,16 @@ void maintainTelemetry() {
     lastTelemetrySuccessMillis = now;
     telemetryFailureCount = 0;
     telemetryWaitIntervalMillis = TELEMETRY_INTERVAL_MS;
-
-    Serial.println("[HTTP] Jadwal berikutnya: 1 menit lagi.");
+    Serial.println(forceRequest
+      ? "[HTTP] Telemetry manual berhasil."
+      : "[HTTP] Jadwal berikutnya: 1 menit lagi.");
     return;
   }
 
   if (result == TelemetryResult::SensorInvalid) {
     telemetryFailureCount = 0;
     telemetryWaitIntervalMillis = SENSOR_RETRY_INTERVAL_MS;
-
-    Serial.println("[HTTP] PZEM akan diperiksa kembali dalam 10 detik.");
+    Serial.println("[HTTP] Menunggu sensor pulih; tidak ada pengiriman data palsu.");
     return;
   }
 
@@ -1134,8 +1421,7 @@ void maintainTelemetry() {
   }
 
   telemetryWaitIntervalMillis = retryDelayForFailure(telemetryFailureCount);
-
-  Serial.print("[HTTP] Gagal. Retry dalam ");
+  Serial.print("[HTTP] Jaringan/server gagal. Retry dalam ");
   Serial.print(telemetryWaitIntervalMillis / 1000UL);
   Serial.println(" detik.");
 }
@@ -1144,17 +1430,31 @@ void maintainTelemetry() {
 // MQTT STATUS, ACK, DAN COMMAND
 // ============================================================================
 String buildStatusPayload(bool online) {
-  StaticJsonDocument<768> document;
+  StaticJsonDocument<1024> document;
 
   document["esp_unit_id"] = config.espUnitId;
   document["online"] = online;
   document["wifi_connected"] = WiFi.status() == WL_CONNECTED;
   document["mqtt_connected"] = mqttClient.connected();
-  document["pzem_valid"] = latestPzem.valid;
+  document["pzem_valid"] = pzemHealth == PzemHealth::Healthy;
+  document["pzem_available"] = latestPzem.valid;
+  document["pzem_state"] = pzemHealthName(pzemHealth);
+  document["pzem_consecutive_failures"] = pzemConsecutiveFailures;
+  document["pzem_total_read_successes"] = pzemTotalReadSuccesses;
+  document["pzem_total_read_failures"] = pzemTotalReadFailures;
+
+  unsigned long sampleAge = pzemSampleAgeMillis();
+  if (sampleAge != ULONG_MAX) {
+    document["pzem_sample_age_ms"] = sampleAge;
+  }
+
   document["relay_1"] = relay1State;
   document["relay_2"] = relay2State;
   document["firmware_version"] = FIRMWARE_VERSION;
   document["uptime_seconds"] = millis() / 1000UL;
+  document["free_heap_bytes"] = ESP.getFreeHeap();
+  document["min_free_heap_bytes"] = ESP.getMinFreeHeap();
+  document["reset_reason"] = static_cast<int>(esp_reset_reason());
 
   if (WiFi.status() == WL_CONNECTED) {
     document["ip_address"] = WiFi.localIP().toString();
@@ -1180,8 +1480,9 @@ bool publishStatus(bool online = true) {
 
   bool published = mqttClient.publish(topic.c_str(), payload.c_str(), true);
 
-  Serial.print("[MQTT] Publish status retained -> ");
-  Serial.println(published ? "OK" : "GAGAL");
+  if (!published) {
+    Serial.println("[MQTT] Publish status retained -> GAGAL");
+  }
 
   return published;
 }
@@ -1485,7 +1786,6 @@ void maintainMqtt() {
 
   publishStatus(true);
   lastHeartbeatMillis = millis();
-  requestImmediateTelemetry();
 }
 
 void maintainHeartbeat() {
@@ -1518,8 +1818,18 @@ void printRuntimeStatus() {
   Serial.println(WiFi.status() == WL_CONNECTED ? "CONNECTED" : "DISCONNECTED");
   Serial.print("MQTT            : ");
   Serial.println(mqttClient.connected() ? "CONNECTED" : "DISCONNECTED");
-  Serial.print("PZEM            : ");
-  Serial.println(latestPzem.valid ? "VALID" : "INVALID");
+  Serial.print("PZEM state      : ");
+  Serial.println(pzemHealthName(pzemHealth));
+  Serial.print("PZEM failures   : ");
+  Serial.println(pzemConsecutiveFailures);
+  Serial.print("PZEM sample age : ");
+  unsigned long sampleAge = pzemSampleAgeMillis();
+  if (sampleAge == ULONG_MAX) {
+    Serial.println("belum ada sampel");
+  } else {
+    Serial.print(sampleAge / 1000UL);
+    Serial.println(" detik");
+  }
   Serial.print("Relay 1         : ");
   Serial.println(relay1State ? "ON" : "OFF");
   Serial.print("Relay 2         : ");
@@ -1599,8 +1909,8 @@ void handleSerialCommand() {
 
     case 't':
     case 'T':
-      requestImmediateTelemetry();
-      Serial.println("[HTTP] Telemetry diminta segera.");
+      requestImmediateTelemetry(true);
+      Serial.println("[HTTP] Telemetry manual diminta segera.");
       break;
 
     case 's':
@@ -1634,6 +1944,7 @@ void setup() {
 
   Serial.begin(115200);
   delay(500);
+  firmwareStartedAtMillis = millis();
 
   Serial.println();
   Serial.println("======================================");
@@ -1641,6 +1952,7 @@ void setup() {
   Serial.print("Firmware Version  : ");
   Serial.println(FIRMWARE_VERSION);
   Serial.println("Telemetry Normal  : 1 menit");
+  Serial.println("Pembacaan PZEM    : 10 detik, debounce + UART recovery");
   Serial.println("Heartbeat MQTT    : 20 detik");
   Serial.println("Relay Boot State  : Semua OFF");
   Serial.println("======================================");
@@ -1675,13 +1987,14 @@ void setup() {
     startConfigurationPortal();
   }
 
-  updatePzemReading(true, true);
+  // Sensor diberi waktu warm-up. Polling pertama dilakukan oleh loop utama.
   maintainMqtt();
   initializeWatchdog();
 
-  telemetryImmediate = true;
-  telemetryWaitIntervalMillis = 0;
-  lastTelemetryAttemptMillis = 0;
+  telemetryImmediate = false;
+  telemetryForceImmediate = false;
+  telemetryWaitIntervalMillis = TELEMETRY_INTERVAL_MS;
+  lastTelemetryAttemptMillis = millis();
 
   Serial.println();
   Serial.println("[INFO] Perintah Serial Monitor:");
@@ -1702,14 +2015,18 @@ void setup() {
 void loop() {
   feedWatchdog();
 
+  // Sensor tetap dipantau walaupun Wi-Fi/server sedang mati.
+  updatePzemReading();
   maintainWiFi();
 
   if (WiFi.status() == WL_CONNECTED) {
     initializeOtaIfNeeded();
-    ArduinoOTA.handle();
+
+    if (otaInitialized) {
+      ArduinoOTA.handle();
+    }
 
     maintainMqtt();
-    updatePzemReading();
     maintainTelemetry();
     maintainHeartbeat();
   }
