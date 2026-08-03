@@ -3,207 +3,855 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Daftar - SmartVolt</title>
-    <link rel="stylesheet" href="{{ asset('assets/css/smartvolt-brand.css') }}?v={{ filemtime(public_path('assets/css/smartvolt-brand.css')) }}">
-<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#173B66">
+
+    <title>Daftar Akun | SmartVolt</title>
+
+    <link rel="icon" href="{{ asset('favicon.ico') }}">
+
+    <link rel="stylesheet" href="{{ asset('assets/css/smartvolt-auth.css') }}?v=20260730-v5">
+
+    <style>
+        /* =============================================================
+           Google registration option
+           ============================================================= */
+        .sv-auth-provider-divider {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin: 24px 0 18px;
+            color: #718096;
+            font-size: 0.9rem;
+            text-align: center;
+        }
+
+        .sv-auth-provider-divider::before,
+        .sv-auth-provider-divider::after {
+            content: "";
+            flex: 1;
+            height: 1px;
+            background: #dfe7f1;
+        }
+
+        .sv-auth-provider-divider span {
+            white-space: nowrap;
+        }
+
+        .sv-auth-google-button {
+            width: 100%;
+            min-height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            padding: 14px 20px;
+            border: 1.5px solid #d6e0ec;
+            border-radius: 15px;
+            background: #ffffff;
+            color: #17243a;
+            font: inherit;
+            font-weight: 700;
+            line-height: 1;
+            text-decoration: none;
+            box-sizing: border-box;
+            cursor: pointer;
+            transition:
+                border-color 0.2s ease,
+                background-color 0.2s ease,
+                box-shadow 0.2s ease,
+                transform 0.2s ease;
+        }
+
+        .sv-auth-google-button:hover {
+            border-color: #aebfd3;
+            background: #f8fbff;
+            box-shadow: 0 10px 28px rgba(23, 59, 102, 0.11);
+            transform: translateY(-1px);
+        }
+
+        .sv-auth-google-button:focus-visible {
+            outline: 3px solid rgba(47, 105, 232, 0.22);
+            outline-offset: 3px;
+        }
+
+        .sv-auth-google-button.is-loading {
+            pointer-events: none;
+            opacity: 0.72;
+        }
+
+        .sv-auth-google-icon {
+            width: 22px;
+            height: 22px;
+            flex: 0 0 22px;
+        }
+
+        .sv-auth-alert p {
+            margin: 4px 0 0;
+        }
+
+        @media (max-width: 576px) {
+            .sv-auth-provider-divider {
+                margin-top: 20px;
+            }
+
+            .sv-auth-google-button {
+                min-height: 54px;
+                border-radius: 14px;
+                font-size: 0.95rem;
+            }
+        }
+    </style>
 </head>
-<body class="brand-body">
-    <div class="sv-auth-layout">
-        <section class="sv-auth-showcase">
-            <div class="sv-showcase-inner">
-                <div class="sv-brandmark">
-                    <div class="icon"><i class="bi bi-lightning-charge-fill"></i></div>
-                    <span>SmartVolt</span>
+
+<body class="sv-auth-page">
+    <main class="sv-auth-shell">
+        <section
+            class="sv-auth-showcase"
+            aria-label="Informasi SmartVolt"
+        >
+            <svg
+                class="sv-auth-network"
+                viewBox="0 0 900 900"
+                aria-hidden="true"
+                focusable="false"
+            >
+                <g fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M70 130H280L360 210H590L690 110H840"/>
+                    <path d="M40 390H190L290 290H470L560 380H820"/>
+                    <path d="M110 680H300L400 580H620L720 680H860"/>
+                    <path d="M240 80V260L160 340V520"/>
+                    <path d="M650 80V250L740 340V520L650 610V820"/>
+                    <path d="M470 210V470L390 550V790"/>
+                </g>
+
+                <g fill="currentColor">
+                    <circle cx="70" cy="130" r="5"/>
+                    <circle cx="360" cy="210" r="5"/>
+                    <circle cx="690" cy="110" r="5"/>
+                    <circle cx="190" cy="390" r="5"/>
+                    <circle cx="470" cy="290" r="5"/>
+                    <circle cx="560" cy="380" r="5"/>
+                    <circle cx="300" cy="680" r="5"/>
+                    <circle cx="620" cy="580" r="5"/>
+                    <circle cx="740" cy="340" r="5"/>
+                    <circle cx="390" cy="550" r="5"/>
+                </g>
+            </svg>
+
+            <div class="sv-auth-showcase-content">
+                <a
+                    href="{{ url('/') }}"
+                    class="sv-auth-brand"
+                    aria-label="SmartVolt"
+                >
+                    <span class="sv-auth-brand-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                            <path
+                                d="M13.2 2.5 5.8 13h5.1l-.7 8.5L18.4 10h-5.1l-.1-7.5Z"
+                                fill="currentColor"
+                            />
+                        </svg>
+                    </span>
+
+                    <span>
+                        <strong>SmartVolt</strong>
+                        <small>Calm Energy Control</small>
+                    </span>
+                </a>
+
+                <div class="sv-auth-copy">
+                    <p class="sv-auth-eyebrow">
+                        Monitoring dan kontrol energi berbasis IoT
+                    </p>
+
+                    <h1>
+                        Kendalikan energi rumah dengan lebih tenang.
+                    </h1>
+
+                    <p class="sv-auth-description">
+                        Pantau daya, energi, estimasi biaya, dan perangkat
+                        listrik melalui satu sistem yang jelas dan mudah
+                        dipahami.
+                    </p>
                 </div>
 
-                <h1 class="sv-showcase-title">Mulai Hidup Hemat Energi Bareng SmartVolt</h1>
-                <p class="sv-showcase-desc">
-                 <p class="sv-showcase-desc">
-    Buat akun SmartVolt kamu dan kendalikan energi rumah secara real-time — pantau pemakaian listrik, atur perangkat, dan hemat tagihan dengan lebih mudah.
-</p>
-                </p>
+                <div class="sv-auth-benefits">
+                    <article class="sv-auth-benefit">
+                        <span class="sv-auth-benefit-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M4 19V9m5 10V5m5 14v-7m5 7V3"/>
+                            </svg>
+                        </span>
 
-                <div class="sv-feature-stack">
-                    <div class="sv-feature-tile">
-                        <div class="tile-icon"><i class="bi bi-house-door-fill"></i></div>
                         <div>
-                            <h4>Kontrol Energi per Ruangan</h4>
-                            <p>Atur ruangan dan perangkat dengan mudah, sehingga setiap sudut rumah bisa dipantau dan dikendalikan dari satu tempat</p>
+                            <h2>Data listrik yang mudah dibaca</h2>
+                            <p>
+                                Lihat tegangan, arus, daya, energi, dan
+                                perubahan penggunaan secara berkala.
+                            </p>
                         </div>
-                    </div>
+                    </article>
 
-                    <div class="sv-feature-tile">
-                        <div class="tile-icon"><i class="bi bi-cpu-fill"></i></div>
+                    <article class="sv-auth-benefit">
+                        <span class="sv-auth-benefit-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                                <rect x="5" y="3" width="14" height="18" rx="3"/>
+                                <path d="M9 8h6M9 12h6M9 16h3"/>
+                            </svg>
+                        </span>
+
                         <div>
-                            <h4>Siap Terhubung dengan IoT</h4>
-                            <p>Pantau konsumsi listrik dan kendalikan perangkat elektronik dengan mudah melalui SmartVolt</p>
+                            <h2>Estimasi biaya yang transparan</h2>
+                            <p>
+                                Pemakaian kWh dihitung berdasarkan data meter
+                                dan dikalikan dengan tarif listrik.
+                            </p>
                         </div>
+                    </article>
+
+                    <article class="sv-auth-benefit">
+                        <span class="sv-auth-benefit-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M8 12h8"/>
+                                <rect x="3" y="7" width="6" height="10" rx="2"/>
+                                <rect x="15" y="7" width="6" height="10" rx="2"/>
+                            </svg>
+                        </span>
+
+                        <div>
+                            <h2>Kontrol perangkat per ruangan</h2>
+                            <p>
+                                Nyalakan atau matikan perangkat melalui relay
+                                ketika ESP32 dan MQTT terhubung.
+                            </p>
+                        </div>
+                    </article>
+                </div>
+
+                <div class="sv-auth-flow" aria-label="Alur data SmartVolt">
+                    <div class="sv-auth-flow-label">Alur sistem</div>
+
+                    <div class="sv-auth-flow-items">
+                        <span>
+                            <strong>PZEM</strong>
+                            <small>Membaca listrik</small>
+                        </span>
+
+                        <i aria-hidden="true">→</i>
+
+                        <span>
+                            <strong>ESP32</strong>
+                            <small>Mengirim data</small>
+                        </span>
+
+                        <i aria-hidden="true">→</i>
+
+                        <span>
+                            <strong>SmartVolt</strong>
+                            <small>Menampilkan hasil</small>
+                        </span>
                     </div>
                 </div>
-            </div>
-
-            <div class="sv-energy-orbit">
-                <div class="sv-orbit-ring r1"></div>
-                <div class="sv-orbit-ring r2"></div>
-                <div class="sv-orbit-ring r3"></div>
-                <div class="sv-orbit-core"><i class="bi bi-plug-fill"></i></div>
-                <div class="sv-orbit-dot d1"></div>
-                <div class="sv-orbit-dot d2"></div>
             </div>
         </section>
 
         <section class="sv-auth-panel">
-            <div class="sv-auth-card sv-glass">
-                <div class="sv-auth-mobile-hero">
-                    <div class="sv-badge"><i class="bi bi-person-plus-fill"></i> Buat Akun SmartVolt</div>
-                    <h1>Buat Identitas SmartVolt Kamu</h1>
-                    <p>Daftar sekarang untuk mulai memantau energi dan mengelola perangkat rumah dengan lebih pintar</p>
+            <div class="sv-auth-panel-inner">
+                <div class="sv-auth-mobile-brand">
+                    <span class="sv-auth-brand-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                            <path
+                                d="M13.2 2.5 5.8 13h5.1l-.7 8.5L18.4 10h-5.1l-.1-7.5Z"
+                                fill="currentColor"
+                            />
+                        </svg>
+                    </span>
 
-                    <div class="sv-mini-wave">
-                        <span></span><span></span><span></span><span></span><span></span>
-                    </div>
+                    <span>
+                        <strong>SmartVolt</strong>
+                        <small>Monitoring energi rumah</small>
+                    </span>
                 </div>
 
-                <div class="sv-auth-body">
-                    <div class="sv-badge"><i class="bi bi-stars"></i> Akun SmartVolt Baru</div>
-                    <h2 class="sv-auth-title">Buat akun</h2>
-                    <p class="sv-auth-subtitle">
-                         Isi data diri kamu untuk bergabung dengan SmartVolt dan mulai membangun sistem monitoring energi yang lebih pintar
+                <div class="sv-auth-heading">
+                    <span class="sv-auth-status-chip">
+                        <span aria-hidden="true"></span>
+                        Akses aman SmartVolt
+                    </span>
+
+                    <h2>Buat akun baru</h2>
+
+                    <p>
+                        Daftar untuk mulai memantau dan mengontrol listrik
+                        rumah Anda.
                     </p>
+                </div>
 
-                    @if ($errors->any())
-                        <div class="sv-alert error">{{ $errors->first() }}</div>
-                    @endif
-                    <form id="registerForm" action="{{ url('/register') }}" method="POST">
-                 
-                        @csrf
+                @if (session('status'))
+                    <div
+                        class="sv-auth-alert sv-auth-alert-success"
+                        role="status"
+                        aria-live="polite"
+                    >
+                        <span aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                                <path d="m5 12 4 4L19 6"/>
+                            </svg>
+                        </span>
 
-                        <div class="sv-field-grid two-col">
-                            <div class="sv-field sv-span-2">
-                                <label class="sv-label" for="name">Nama Lengkap</label>
-                                <div class="sv-input-wrap">
-                                    <i class="bi bi-person-fill sv-input-icon"></i>
-                                    <input
-                                        id="name"
-                                        type="text"
-                                        name="name"
-                                        class="sv-input"
-                                        placeholder="Masukkan nama lengkap kamu"
-                                        value="{{ old('name') }}"
-                                        required
-                                    >
-                                </div>
-                                @error('name')
-                                    <div class="sv-error-text">{{ $message }}</div>
-                                @enderror
-                            </div>
-
-                            <div class="sv-field sv-span-2">
-                                <label class="sv-label" for="email">Email</label>
-                                <div class="sv-input-wrap">
-                                    <i class="bi bi-envelope-fill sv-input-icon"></i>
-                                    <input
-                                        id="email"
-                                        type="email"
-                                        name="email"
-                                        class="sv-input"
-                                        placeholder="Masukkan alamat email kamu"
-                                        value="{{ old('email') }}"
-                                        required
-                                    >
-                                </div>
-                                @error('email')
-                                    <div class="sv-error-text">{{ $message }}</div>
-                                @enderror
-                            </div>
-
-                            <div class="sv-field">
-                                <label class="sv-label" for="password">Kata Sandi</label>
-                                <div class="sv-input-wrap">
-                                    <i class="bi bi-lock-fill sv-input-icon"></i>
-                                    <input
-                                        id="password"
-                                        type="password"
-                                        name="password"
-                                        class="sv-input"
-                                        placeholder="Minimal 6 karakter"
-                                        required
-                                    >
-                                    <button type="button" class="sv-password-toggle" id="togglePassword">
-                                        <i class="bi bi-eye-fill" id="togglePasswordIcon"></i>
-                                    </button>
-                                </div>
-                                @error('password')
-                                    <div class="sv-error-text">{{ $message }}</div>
-                                @enderror
-                            </div>
-
-                            <div class="sv-field">
-                                <label class="sv-label" for="password_confirmation">Konfirmasi Kata Sandi</label>
-                                <div class="sv-input-wrap">
-                                    <i class="bi bi-shield-lock-fill sv-input-icon"></i>
-                                    <input
-                                        id="password_confirmation"
-                                        type="password"
-                                        name="password_confirmation"
-                                        class="sv-input"
-                                        placeholder="Masukkan ulang kata sandi kamu"
-                                        required
-                                    >
-                                    <button type="button" class="sv-password-toggle" id="togglePasswordConfirm">
-                                        <i class="bi bi-eye-fill" id="togglePasswordConfirmIcon"></i>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="sv-helper">
-                            Kata sandi minimal 6 karakter dan harus sama dengan konfirmasinya
-                        </div>
-
-                        <button type="submit" class="sv-btn sv-auth-submit success" id="registerButton">
-                            <span id="registerButtonText">Daftar</span>
-                        </button>
-                    </form>
-
-                    <div class="sv-auth-foot">
-                         Sudah punya akun?
-                        <a href="{{ route('login') }}" class="sv-link">Masuk</a>
+                        <div>{{ session('status') }}</div>
                     </div>
+                @endif
+
+
+                @if (session('error'))
+                    <div
+                        class="sv-auth-alert sv-auth-alert-error"
+                        role="alert"
+                        aria-live="assertive"
+                    >
+                        <span aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="9"/>
+                                <path d="M12 7v6m0 4h.01"/>
+                            </svg>
+                        </span>
+
+                        <div>
+                            <strong>Daftar dengan Google belum berhasil.</strong>
+                            <p>{{ session('error') }}</p>
+                        </div>
+                    </div>
+                @endif
+
+                @if ($errors->any())
+                    <div
+                        class="sv-auth-alert sv-auth-alert-error"
+                        role="alert"
+                        aria-live="assertive"
+                    >
+                        <span aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="9"/>
+                                <path d="M12 7v6m0 4h.01"/>
+                            </svg>
+                        </span>
+
+                        <div>
+                            <strong>Periksa kembali data yang dimasukkan.</strong>
+                            <p>{{ $errors->first() }}</p>
+                        </div>
+                    </div>
+                @endif
+
+                <form
+                    id="registerForm"
+                    class="sv-auth-form"
+                    action="{{ route('register.process') }}"
+                    method="POST"
+                    novalidate
+                >
+                    @csrf
+
+                    <div class="sv-auth-field">
+                        <label for="name">Nama lengkap</label>
+
+                        <div
+                            class="sv-auth-input-group
+                                @error('name') is-invalid @enderror"
+                        >
+                            <span class="sv-auth-input-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24">
+                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                                    <circle cx="12" cy="7" r="4"/>
+                                </svg>
+                            </span>
+
+                            <input
+                                type="text"
+                                id="name"
+                                name="name"
+                                value="{{ old('name') }}"
+                                placeholder="Nama lengkap Anda"
+                                autocomplete="name"
+                                aria-describedby="nameHelp nameError"
+                                @error('name') aria-invalid="true" @enderror
+                                required
+                                maxlength="100"
+                                autofocus
+                            >
+                        </div>
+
+                        @error('name')
+                            <p
+                                id="nameError"
+                                class="sv-auth-field-error"
+                            >
+                                {{ $message }}
+                            </p>
+                        @else
+                            <p
+                                id="nameHelp"
+                                class="sv-auth-field-help"
+                            >
+                                Masukkan nama lengkap Anda.
+                            </p>
+                        @enderror
+                    </div>
+
+                    <div class="sv-auth-field">
+                        <label for="email">Alamat email</label>
+
+                        <div
+                            class="sv-auth-input-group
+                                @error('email') is-invalid @enderror"
+                        >
+                            <span class="sv-auth-input-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24">
+                                    <rect x="3" y="5" width="18" height="14" rx="3"/>
+                                    <path d="m5 8 7 5 7-5"/>
+                                </svg>
+                            </span>
+
+                            <input
+                                type="email"
+                                id="email"
+                                name="email"
+                                value="{{ old('email') }}"
+                                placeholder="nama@email.com"
+                                autocomplete="email"
+                                inputmode="email"
+                                aria-describedby="emailHelp emailError"
+                                @error('email') aria-invalid="true" @enderror
+                                required
+                            >
+                        </div>
+
+                        @error('email')
+                            <p
+                                id="emailError"
+                                class="sv-auth-field-error"
+                            >
+                                {{ $message }}
+                            </p>
+                        @else
+                            <p
+                                id="emailHelp"
+                                class="sv-auth-field-help"
+                            >
+                                Gunakan email aktif untuk menerima notifikasi
+                                dan tautan reset password.
+                            </p>
+                        @enderror
+                    </div>
+
+                    <div class="sv-auth-field">
+                        <label for="password">Kata sandi</label>
+
+                        <div
+                            class="sv-auth-input-group
+                                @error('password') is-invalid @enderror"
+                        >
+                            <span class="sv-auth-input-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24">
+                                    <rect x="5" y="10" width="14" height="10" rx="3"/>
+                                    <path d="M8 10V7a4 4 0 0 1 8 0v3"/>
+                                </svg>
+                            </span>
+
+                            <input
+                                type="password"
+                                id="password"
+                                name="password"
+                                placeholder="Minimal 8 karakter"
+                                autocomplete="new-password"
+                                aria-describedby="passwordHelp passwordError"
+                                @error('password') aria-invalid="true" @enderror
+                                required
+                                minlength="8"
+                            >
+
+                            <button
+                                type="button"
+                                id="togglePassword"
+                                class="sv-auth-password-toggle"
+                                aria-label="Tampilkan kata sandi"
+                                aria-pressed="false"
+                            >
+                                <svg
+                                    class="sv-auth-eye-show"
+                                    viewBox="0 0 24 24"
+                                    aria-hidden="true"
+                                >
+                                    <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6S2.5 12 2.5 12Z"/>
+                                    <circle cx="12" cy="12" r="2.5"/>
+                                </svg>
+
+                                <svg
+                                    class="sv-auth-eye-hide"
+                                    viewBox="0 0 24 24"
+                                    aria-hidden="true"
+                                >
+                                    <path d="m4 4 16 16"/>
+                                    <path d="M10.6 6.2A10 10 0 0 1 12 6c6 0 9.5 6 9.5 6a16 16 0 0 1-2.4 3.1M6.2 7.3A15.7 15.7 0 0 0 2.5 12S6 18 12 18a9.8 9.8 0 0 0 2.1-.2"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div class="sv-auth-password-strength" id="passwordStrength">
+                            <div class="sv-auth-strength-bar">
+                                <span data-strength="1"></span>
+                                <span data-strength="2"></span>
+                                <span data-strength="3"></span>
+                                <span data-strength="4"></span>
+                            </div>
+                            <span class="sv-auth-strength-text" id="strengthText">
+                                Minimal 8 karakter
+                            </span>
+                        </div>
+
+                        @error('password')
+                            <p
+                                id="passwordError"
+                                class="sv-auth-field-error"
+                            >
+                                {{ $message }}
+                            </p>
+                        @enderror
+                    </div>
+
+                    <div class="sv-auth-field">
+                        <label for="password_confirmation">Konfirmasi kata sandi</label>
+
+                        <div
+                            class="sv-auth-input-group
+                                @error('password') is-invalid @enderror"
+                        >
+                            <span class="sv-auth-input-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24">
+                                    <rect x="5" y="10" width="14" height="10" rx="3"/>
+                                    <path d="M8 10V7a4 4 0 0 1 8 0v3"/>
+                                </svg>
+                            </span>
+
+                            <input
+                                type="password"
+                                id="password_confirmation"
+                                name="password_confirmation"
+                                placeholder="Ulangi kata sandi"
+                                autocomplete="new-password"
+                                aria-describedby="passwordConfirmationHelp"
+                                required
+                                minlength="8"
+                            >
+
+                            <button
+                                type="button"
+                                id="togglePasswordConfirm"
+                                class="sv-auth-password-toggle"
+                                aria-label="Tampilkan konfirmasi kata sandi"
+                                aria-pressed="false"
+                            >
+                                <svg
+                                    class="sv-auth-eye-show"
+                                    viewBox="0 0 24 24"
+                                    aria-hidden="true"
+                                >
+                                    <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6S2.5 12 2.5 12Z"/>
+                                    <circle cx="12" cy="12" r="2.5"/>
+                                </svg>
+
+                                <svg
+                                    class="sv-auth-eye-hide"
+                                    viewBox="0 0 24 24"
+                                    aria-hidden="true"
+                                >
+                                    <path d="m4 4 16 16"/>
+                                    <path d="M10.6 6.2A10 10 0 0 1 12 6c6 0 9.5 6 9.5 6a16 16 0 0 1-2.4 3.1M6.2 7.3A15.7 15.7 0 0 0 2.5 12S6 18 12 18a9.8 9.8 0 0 0 2.1-.2"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <p
+                            id="passwordConfirmationHelp"
+                            class="sv-auth-field-help"
+                        >
+                            Ketik ulang kata sandi yang sama.
+                        </p>
+                    </div>
+
+                    <button
+                        type="submit"
+                        id="registerButton"
+                        class="sv-auth-submit"
+                    >
+                        <span
+                            class="sv-auth-button-spinner"
+                            aria-hidden="true"
+                        ></span>
+
+                        <span id="registerButtonText">Daftar Akun</span>
+                    </button>
+                </form>
+
+
+                <div class="sv-auth-provider-divider" aria-hidden="true">
+                    <span>atau daftar dengan</span>
+                </div>
+
+                @if (Route::has('google.redirect'))
+                    <a
+                        id="googleRegisterButton"
+                        href="{{ route('google.redirect', ['from' => 'register']) }}"
+                        class="sv-auth-google-button"
+                        aria-label="Daftar menggunakan akun Google"
+                    >
+                        <svg
+                            class="sv-auth-google-icon"
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                            focusable="false"
+                        >
+                            <path
+                                fill="#4285F4"
+                                d="M21.35 12.21c0-.68-.06-1.18-.19-1.7H12v3.33h5.38a4.65 4.65 0 0 1-2 3.02l2.74 2.12c1.6-1.48 3.23-3.66 3.23-6.77Z"
+                            />
+                            <path
+                                fill="#34A853"
+                                d="M12 21.75c2.63 0 4.83-.87 6.44-2.36l-3.06-2.53c-.85.57-1.94.96-3.38.96-2.53 0-4.68-1.71-5.45-4.01l-3.12 2.41A9.74 9.74 0 0 0 12 21.75Z"
+                            />
+                            <path
+                                fill="#FBBC05"
+                                d="M6.55 13.81a5.85 5.85 0 0 1 0-3.62L3.43 7.78a9.75 9.75 0 0 0 0 8.44l3.12-2.41Z"
+                            />
+                            <path
+                                fill="#EA4335"
+                                d="M12 6.18c1.57 0 2.98.54 4.09 1.6l2.42-2.43C16.83 3.79 14.63 2.25 12 2.25a9.74 9.74 0 0 0-8.57 5.53l3.12 2.41C7.32 7.89 9.47 6.18 12 6.18Z"
+                            />
+                        </svg>
+
+                        <span id="googleRegisterButtonText">
+                            Daftar dengan Google
+                        </span>
+                    </a>
+                @else
+                    <div
+                        class="sv-auth-alert sv-auth-alert-error"
+                        role="alert"
+                    >
+                        <span aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="9"/>
+                                <path d="M12 7v6m0 4h.01"/>
+                            </svg>
+                        </span>
+
+                        <div>
+                            <strong>Fitur Google belum tersedia.</strong>
+                            <p>Route google.redirect belum terdaftar.</p>
+                        </div>
+                    </div>
+                @endif
+
+                <p class="sv-auth-footer">
+                    Sudah memiliki akun?
+                    <a
+                        href="{{ route('login') }}"
+                        class="sv-auth-link"
+                    >
+                        Masuk
+                    </a>
+                </p>
+
+                <div class="sv-auth-security-note">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 3 5 6v5c0 4.6 2.7 8 7 10 4.3-2 7-5.4 7-10V6l-7-3Z"/>
+                        <path d="m9 12 2 2 4-5"/>
+                    </svg>
+
+                    <p>
+                        Data Anda dilindungi dan tidak akan dibagikan kepada
+                        pihak ketiga tanpa izin Anda.
+                    </p>
                 </div>
             </div>
         </section>
-    </div>
+    </main>
 
     <script>
-        const registerForm = document.getElementById('registerForm');
-        const registerButton = document.getElementById('registerButton');
-        const registerButtonText = document.getElementById('registerButtonText');
+        document.addEventListener('DOMContentLoaded', function () {
+            // =========================================================
+            // Toggle password visibility
+            // =========================================================
 
-        const passwordInput = document.getElementById('password');
-        const passwordConfirmInput = document.getElementById('password_confirmation');
+            const setupToggle = function (inputId, toggleId) {
+                const input = document.getElementById(inputId);
+                const toggle = document.getElementById(toggleId);
 
-        const togglePassword = document.getElementById('togglePassword');
-        const togglePasswordIcon = document.getElementById('togglePasswordIcon');
+                if (! input || ! toggle) {
+                    return;
+                }
 
-        const togglePasswordConfirm = document.getElementById('togglePasswordConfirm');
-        const togglePasswordConfirmIcon = document.getElementById('togglePasswordConfirmIcon');
+                toggle.addEventListener('click', function () {
+                    const shouldShow = input.type === 'password';
 
-        togglePassword.addEventListener('click', function () {
-            const isPassword = passwordInput.type === 'password';
-            passwordInput.type = isPassword ? 'text' : 'password';
-            togglePasswordIcon.className = isPassword ? 'bi bi-eye-slash-fill' : 'bi bi-eye-fill';
-        });
+                    input.type = shouldShow ? 'text' : 'password';
+                    toggle.classList.toggle('is-visible', shouldShow);
+                    toggle.setAttribute(
+                        'aria-label',
+                        shouldShow
+                            ? 'Sembunyikan kata sandi'
+                            : 'Tampilkan kata sandi'
+                    );
+                    toggle.setAttribute(
+                        'aria-pressed',
+                        shouldShow ? 'true' : 'false'
+                    );
 
-        togglePasswordConfirm.addEventListener('click', function () {
-            const isPassword = passwordConfirmInput.type === 'password';
-            passwordConfirmInput.type = isPassword ? 'text' : 'password';
-            togglePasswordConfirmIcon.className = isPassword ? 'bi bi-eye-slash-fill' : 'bi bi-eye-fill';
-        });
+                    input.focus();
+                });
+            };
 
-        registerForm.addEventListener('submit', function () {
-            registerButton.disabled = true;
-            registerButtonText.textContent = 'sedang membuat...';
+            setupToggle('password', 'togglePassword');
+            setupToggle('password_confirmation', 'togglePasswordConfirm');
+
+            // =========================================================
+            // Password strength indicator
+            // =========================================================
+
+            const passwordInput = document.getElementById('password');
+            const strengthBars = document.querySelectorAll(
+                '#passwordStrength [data-strength]'
+            );
+            const strengthText = document.getElementById('strengthText');
+
+            if (passwordInput && strengthBars.length && strengthText) {
+                passwordInput.addEventListener('input', function () {
+                    const value = passwordInput.value;
+                    const strength = calculateStrength(value);
+
+                    strengthBars.forEach(function (bar, index) {
+                        const level = parseInt(
+                            bar.getAttribute('data-strength'),
+                            10
+                        );
+
+                        bar.classList.remove(
+                            'is-active',
+                            'is-weak',
+                            'is-medium',
+                            'is-strong'
+                        );
+
+                        if (level <= strength.level) {
+                            bar.classList.add(
+                                'is-active',
+                                strength.class
+                            );
+                        }
+                    });
+
+                    strengthText.textContent = strength.label;
+                    strengthText.className =
+                        'sv-auth-strength-text ' + strength.class;
+                });
+            }
+
+            function calculateStrength (password) {
+                if (! password) {
+                    return {
+                        level: 0,
+                        class: '',
+                        label: 'Minimal 8 karakter'
+                    };
+                }
+
+                let score = 0;
+
+                if (password.length >= 8) {
+                    score += 1;
+                }
+
+                if (password.length >= 10) {
+                    score += 1;
+                }
+
+                if (/[A-Z]/.test(password) && /[a-z]/.test(password)) {
+                    score += 1;
+                }
+
+                if (/\d/.test(password)) {
+                    score += 1;
+                }
+
+                if (/[^A-Za-z0-9]/.test(password)) {
+                    score += 1;
+                }
+
+                if (score <= 2) {
+                    return {
+                        level: 1,
+                        class: 'is-weak',
+                        label: 'Lemah — tambahkan variasi karakter'
+                    };
+                }
+
+                if (score <= 3) {
+                    return {
+                        level: 2,
+                        class: 'is-medium',
+                        label: 'Sedang — tambahkan kombinasi huruf besar, angka, atau simbol'
+                    };
+                }
+
+                if (score <= 4) {
+                    return {
+                        level: 3,
+                        class: 'is-strong',
+                        label: 'Kuat — kata sandi yang baik'
+                    };
+                }
+
+                return {
+                    level: 4,
+                    class: 'is-strong',
+                    label: 'Sangat kuat'
+                };
+            }
+
+            // =========================================================
+            // Submit handling
+            // =========================================================
+
+            const form = document.getElementById('registerForm');
+            const button = document.getElementById('registerButton');
+            const buttonText = document.getElementById('registerButtonText');
+            const googleButton = document.getElementById('googleRegisterButton');
+            const googleButtonText = document.getElementById('googleRegisterButtonText');
+
+            if (googleButton && googleButtonText) {
+                googleButton.addEventListener('click', function () {
+                    googleButton.classList.add('is-loading');
+                    googleButton.setAttribute('aria-busy', 'true');
+                    googleButtonText.textContent = 'Menghubungkan ke Google...';
+                });
+            }
+
+            if (form && button && buttonText) {
+                form.addEventListener('submit', function (event) {
+                    if (! form.checkValidity()) {
+                        event.preventDefault();
+                        form.reportValidity();
+                        return;
+                    }
+
+                    button.disabled = true;
+                    button.classList.add('is-loading');
+                    buttonText.textContent = 'Mendaftarkan akun...';
+                    button.setAttribute('aria-busy', 'true');
+                });
+            }
         });
     </script>
 </body>

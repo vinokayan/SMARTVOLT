@@ -1,0 +1,58 @@
+/* =========================================================
+   SmartVolt Dashboard — ACK Status Patch
+   ========================================================= */
+
+.sv-dashboard-streamlined .sv-dashboard-metrics {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+}
+
+.sv-dashboard-streamlined .sv-metric-card {
+    min-width: 0;
+    min-height: 150px;
+}
+
+.sv-device-switch.is-pending {
+    opacity: 0.7;
+    cursor: wait;
+    pointer-events: none;
+}
+
+.sv-device-switch.is-offline {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.sv-device-status-unknown {
+    color: var(--sv-muted, #667085);
+}
+
+.sv-system-summary-card.is-connected {
+    border-color: #c3e1c7;
+    background: #f7fcf8;
+}
+
+.sv-system-summary-card.is-disconnected {
+    border-color: #ead09a;
+    background: #fffaf0;
+}
+
+@media (max-width: 1280px) {
+    .sv-dashboard-streamlined .sv-dashboard-metrics {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 900px) {
+    .sv-dashboard-streamlined .sv-dashboard-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 640px) {
+    .sv-dashboard-streamlined .sv-dashboard-metrics {
+        grid-template-columns: 1fr;
+    }
+}

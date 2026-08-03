@@ -1,0 +1,76 @@
+/* SmartVolt Auth V4 — compact, modern, responsive */
+:root {
+    --sv-bg: #f4f7fb;
+    --sv-primary: #1473e6;
+    --sv-primary-dark: #0f5fc5;
+    --sv-navy: #0b3b75;
+    --sv-text: #0f1f38;
+    --sv-muted: #6b7a90;
+    --sv-border: #dfe7f1;
+    --sv-radius: 12px;
+    --sv-radius-lg: 18px;
+}
+body.sv-auth-page { background: #f4f7fb; }
+.sv-auth-shell { grid-template-columns: minmax(0,1.05fr) minmax(420px,.75fr); }
+.sv-auth-showcase { background: radial-gradient(circle at 20% 10%,rgba(25,125,240,.35),transparent 35%), linear-gradient(145deg,#082d5d,#0b3b75 55%,#075f88); }
+.sv-auth-showcase-content { width: min(100%,760px); padding: clamp(34px,5vw,68px); }
+.sv-auth-brand-icon { border-radius: 15px; background: linear-gradient(145deg,rgba(255,255,255,.2),rgba(255,255,255,.08)); }
+.sv-auth-copy { margin-top: clamp(60px,9vh,110px); }
+.sv-auth-eyebrow { margin-bottom: 12px; color: #a9d6ff; font-size: 11px; }
+.sv-auth-copy h1 { max-width: 610px; font-size: clamp(36px,4vw,58px); line-height: 1.08; }
+.sv-auth-description { max-width: 570px; margin-top: 18px; font-size: clamp(15px,1.25vw,17px); line-height: 1.65; }
+.sv-auth-benefits { max-width: 590px; margin-top: 34px; gap: 14px; }
+.sv-auth-benefit { grid-template-columns: 38px minmax(0,1fr); gap: 12px; }
+.sv-auth-benefit-icon { width: 38px; height: 38px; border-radius: 11px; }
+.sv-auth-benefit h2 { font-size: 13.5px; }
+.sv-auth-benefit p { font-size: 11.5px; line-height: 1.5; }
+.sv-auth-flow { padding-top: 30px; }
+.sv-auth-panel { background: rgba(255,255,255,.96); }
+.sv-auth-panel-inner { width: min(100%,460px); padding: clamp(28px,5vw,56px); }
+.sv-auth-mobile-brand { margin-bottom: 28px; }
+.sv-auth-heading h2 { color: #11243f; font-size: clamp(25px,2.4vw,32px); letter-spacing: -.035em; }
+.sv-auth-heading p { margin-top: 8px; color: #718198; font-size: 12.5px; line-height: 1.55; }
+.sv-auth-form { margin-top: 26px; gap: 17px; }
+.sv-auth-field label { color: #3f536c; font-size: 11px; font-weight: 720; }
+.sv-auth-input-group input { min-height: 48px; border-color: #d9e3ee; border-radius: 11px; background: #fff; font-size: 13px; }
+.sv-auth-input-group input:focus { border-color: var(--sv-primary); box-shadow: 0 0 0 4px rgba(20,115,230,.13); }
+.sv-auth-submit { min-height: 48px; border-radius: 11px; background: linear-gradient(180deg,#1a7bf0,#1268d4); box-shadow: 0 10px 22px rgba(20,115,230,.22); font-size: 13px; }
+.sv-auth-submit:hover { box-shadow: 0 14px 28px rgba(20,115,230,.27); transform: translateY(-1px); }
+.sv-auth-security-note { border-color: #dce7f3; border-radius: 12px; background: #f7faff; }
+.sv-auth-footer { color: #77869a; font-size: 11.5px; }
+.sv-simple-landing { display: grid; min-height: 100svh; padding: 24px; place-items: center; background: radial-gradient(circle at 50% 0,#e5f2ff,transparent 45%),#f4f7fb; }
+.sv-simple-landing-card { width: min(100%,520px); padding: 48px; text-align: center; border: 1px solid #dfe7f1; border-radius: 24px; background: #fff; box-shadow: 0 25px 70px rgba(15,31,56,.12); }
+.sv-simple-brand-mark { display: grid; width: 64px; height: 64px; margin: 0 auto 20px; place-items: center; color: #fff; border-radius: 20px; background: linear-gradient(145deg,#1473e6,#08a9c4); box-shadow: 0 14px 30px rgba(20,115,230,.24); }
+.sv-simple-landing-card h1 { margin: 0; color: #102340; font-size: 38px; letter-spacing: -.045em; }
+.sv-simple-landing-card p { margin: 14px auto 28px; color: #6f7f95; line-height: 1.65; }
+.sv-simple-landing-actions { display: grid; gap: 12px; }
+@media (max-width: 980px) {
+    .sv-auth-shell { grid-template-columns: 1fr; }
+    .sv-auth-showcase { display: none; }
+    .sv-auth-panel { min-height: 100svh; background: radial-gradient(circle at 50% 0,#e8f3ff,transparent 40%),#f4f7fb; }
+    .sv-auth-panel-inner { width: min(100%,500px); margin: auto; padding: 30px 24px; }
+    .sv-auth-mobile-brand { display: flex; }
+}
+@media (max-width: 520px) {
+    .sv-auth-panel-inner { padding: 24px 18px; }
+    .sv-auth-heading h2 { font-size: 26px; }
+    .sv-simple-landing-card { padding: 34px 22px; border-radius: 20px; }
+}
+
+/* SmartVolt Auth V4 refinements */
+.sv-auth-panel-inner { max-width: 470px; }
+.sv-auth-form { width: 100%; }
+.sv-auth-alert { border-radius: 12px; box-shadow: none; }
+.sv-auth-input-group { background: #fff; }
+.sv-auth-input-group:focus-within { border-radius: 11px; box-shadow: 0 0 0 4px rgba(20,115,230,.12); }
+.sv-auth-input-group:focus-within input { box-shadow: none; }
+.sv-auth-link { font-weight: 720; }
+.sv-auth-options { gap: 14px; }
+.sv-auth-password-strength { border-radius: 10px; background: #f7f9fc; }
+.sv-auth-security-note { color: #60728a; }
+@media (max-width: 520px) {
+    .sv-auth-panel { align-items: flex-start; }
+    .sv-auth-panel-inner { padding-top: max(24px, env(safe-area-inset-top)); padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+    .sv-auth-options { align-items: flex-start; flex-direction: column; }
+    .sv-auth-submit { width: 100%; }
+}

@@ -1,949 +1,283 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rooms - SmartVolt</title>
+@extends('layouts.app')
 
-    <link rel="stylesheet" href="{{ asset('assets/css/smartvolt-brand.css') }}?v={{ filemtime(public_path('assets/css/smartvolt-brand.css')) }}">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+@section('title', 'Ruangan & Perangkat')
+@section('page-title', 'Ruangan & Perangkat')
+@section('page-subtitle', 'Kontrol perangkat berdasarkan ruangan.')
+@section('body-class', 'sv-rooms-page sv-rooms-streamlined')
 
+@php
+    $roomCollection = collect($roomPageData ?? []);
+    $stats = $roomStats ?? [];
+    $system = $roomSystem ?? [];
+
+    $systemConnected = (bool) ($system['connected'] ?? false);
+    $deviceStatusAvailable = (bool) ($stats['device_status_available'] ?? false);
+    $activeDevices = $stats['active_devices'] ?? null;
+    $activeDevicesDisplay = $deviceStatusAvailable
+        && is_numeric($activeDevices)
+        && (int) $activeDevices > 0
+            ? (int) $activeDevices
+            : '—';
+
+    $roomTones = ['violet', 'blue', 'green', 'amber', 'cyan', 'rose'];
+@endphp
+
+@push('styles')
     <style>
-        .sv-room-page-grid {
-            display: grid;
-            grid-template-columns: 1.25fr 0.85fr;
-            gap: 24px;
-        }
 
-        .sv-room-list {
-            display: grid;
-            gap: 16px;
-        }
-
-        .sv-room-manage-card {
-            padding: 20px;
-            border-radius: 24px;
-            background: rgba(9, 20, 40, 0.45);
-            border: 1px solid rgba(255,255,255,0.06);
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
-            transition: 0.2s ease;
-        }
-
-        .sv-room-manage-card.active-room {
-            border-color: rgba(90, 198, 255, 0.32);
-            box-shadow:
-                inset 0 1px 0 rgba(255,255,255,0.04),
-                0 0 0 1px rgba(90, 198, 255, 0.08);
-        }
-
-        .sv-room-manage-top {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 18px;
-        }
-
-        .sv-room-manage-left {
-            display: flex;
+        .sv-rooms-page .sv-device-switch.sv-device-power-button {
+            width: auto;
+            min-width: 104px;
+            min-height: 40px;
+            display: inline-flex;
             align-items: center;
-            gap: 14px;
-            min-width: 0;
-        }
-
-        .sv-room-clickable {
-            cursor: pointer;
-            transition: 0.2s ease;
-            border-radius: 18px;
-            padding: 6px;
-            margin: -6px;
-        }
-
-        .sv-room-clickable:hover {
-            transform: translateY(-1px);
-            opacity: 0.96;
-        }
-
-        .sv-room-manage-icon {
-            width: 54px;
-            height: 54px;
-            border-radius: 18px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 22px;
-            background: linear-gradient(135deg, rgba(66, 196, 255, 0.18), rgba(94, 255, 209, 0.14));
-            color: #bff4ff;
-            flex-shrink: 0;
-        }
-
-        .sv-room-manage-title {
-            font-size: 20px;
-            font-weight: 800;
-            color: #edf5ff;
-            margin: 0 0 4px;
-            letter-spacing: -0.02em;
-        }
-
-        .sv-room-manage-meta {
-            color: #a9bad5;
-            font-size: 14px;
-            line-height: 1.5;
-        }
-
-        .sv-room-manage-actions {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex-wrap: wrap;
             justify-content: flex-end;
-        }
-
-        .sv-mini-btn {
-            border: none;
-            border-radius: 14px;
-            padding: 10px 14px;
-            font-size: 13px;
-            font-weight: 700;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
             gap: 8px;
-            transition: 0.2s ease;
+            padding: 5px 7px 5px 10px;
+            white-space: nowrap;
         }
 
-        .sv-mini-btn:hover {
-            transform: translateY(-1px);
+        .sv-rooms-page .sv-device-switch.sv-device-power-button [data-switch-label] {
+            min-width: 34px;
+            font-weight: 800;
+            text-align: right;
         }
 
-        .sv-mini-btn:disabled {
-            opacity: 0.65;
+        /* Saat SmartVolt belum terhubung, switch ditampilkan Mati, abu-abu, dan tidak dapat ditekan. */
+        .sv-rooms-page .sv-device-switch.is-offline {
+            color: #667085;
+            background: #f2f4f7 !important;
+            border-color: #e4e7ec !important;
             cursor: not-allowed;
-            transform: none;
+            opacity: 1;
         }
 
-        .sv-mini-btn.edit {
-            background: rgba(75, 152, 255, 0.16);
-            color: #cbe1ff;
-            border: 1px solid rgba(75, 152, 255, 0.22);
+        .sv-rooms-page .sv-device-switch.is-offline .sv-switch-track {
+            background: #d0d5dd;
         }
 
-        .sv-mini-btn.delete {
-            background: rgba(255, 96, 96, 0.14);
-            color: #ffd5d5;
-            border: 1px solid rgba(255, 96, 96, 0.18);
-        }
-
-        .sv-mini-btn.toggle-on {
-            background: rgba(73, 212, 155, 0.18);
-            color: #c8ffe7;
-            border: 1px solid rgba(73, 212, 155, 0.24);
-            min-width: 84px;
-            justify-content: center;
-        }
-
-        .sv-mini-btn.toggle-off {
-            background: rgba(255, 97, 97, 0.14);
-            color: #ffd7d7;
-            border: 1px solid rgba(255, 97, 97, 0.18);
-            min-width: 84px;
-            justify-content: center;
-        }
-
-        .sv-mini-btn .sv-status-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 999px;
-            display: inline-block;
-            flex-shrink: 0;
-        }
-
-        .sv-mini-btn.toggle-on .sv-status-dot {
-            background: #66f2b8;
-            box-shadow: 0 0 10px rgba(102, 242, 184, 0.55);
-        }
-
-        .sv-mini-btn.toggle-off .sv-status-dot {
-            background: #ff8d8d;
-            box-shadow: 0 0 10px rgba(255, 141, 141, 0.35);
-        }
-
-        .sv-inline-edit {
-            display: none;
-            margin-top: 16px;
-            padding-top: 16px;
-            border-top: 1px solid rgba(255,255,255,0.06);
-        }
-
-        .sv-inline-edit.show {
-            display: block;
-        }
-
-        .sv-form-stack {
-            display: grid;
-            gap: 14px;
-        }
-
-        .sv-form-group {
-            display: grid;
-            gap: 8px;
-        }
-
-        .sv-form-label {
-            color: #b5c8e5;
-            font-size: 13px;
-            font-weight: 700;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-        }
-
-        .sv-form-input {
-            width: 100%;
-            border: 1px solid rgba(255,255,255,0.08);
-            background: rgba(255,255,255,0.06);
-            color: #eef5ff;
-            border-radius: 18px;
-            padding: 14px 16px;
-            font-size: 15px;
-            outline: none;
-        }
-
-        .sv-form-input::placeholder {
-            color: #8ca4c8;
-        }
-
-        .sv-form-input:focus {
-            border-color: rgba(90, 198, 255, 0.45);
-            box-shadow: 0 0 0 4px rgba(90, 198, 255, 0.10);
-        }
-
-        .sv-form-actions {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        .sv-primary-btn,
-        .sv-secondary-btn {
-            border: none;
-            border-radius: 16px;
-            padding: 13px 18px;
-            font-size: 14px;
-            font-weight: 800;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            transition: 0.2s ease;
-        }
-
-        .sv-primary-btn {
-            background: linear-gradient(135deg, #3ea7ff, #5f7cff);
-            color: #fff;
-        }
-
-        .sv-secondary-btn {
-            background: rgba(255,255,255,0.07);
-            color: #d6e4f8;
-            border: 1px solid rgba(255,255,255,0.08);
-        }
-
-        .sv-primary-btn:hover,
-        .sv-secondary-btn:hover {
-            transform: translateY(-1px);
-        }
-
-        .sv-status-banner,
-        .sv-error-banner {
-            margin-bottom: 18px;
-            border-radius: 18px;
-            padding: 14px 16px;
-            font-size: 14px;
-            font-weight: 600;
-        }
-
-        .sv-status-banner {
-            background: rgba(73, 212, 155, 0.14);
-            color: #c8ffe7;
-            border: 1px solid rgba(73, 212, 155, 0.18);
-        }
-
-        .sv-error-banner {
-            background: rgba(255, 97, 97, 0.14);
-            color: #ffd7d7;
-            border: 1px solid rgba(255, 97, 97, 0.18);
-        }
-
-        .sv-mqtt-banner {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            background: rgba(73, 212, 155, 0.14);
-            color: #c8ffe7;
-            border: 1px solid rgba(73, 212, 155, 0.18);
-        }
-
-        .sv-form-card {
-            display: grid;
-            gap: 16px;
-        }
-
-        .sv-form-helper {
-            color: #9eb1cc;
-            font-size: 14px;
-            line-height: 1.6;
-        }
-
-        .sv-room-highlight {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 14px;
-        }
-
-        .sv-room-highlight-icon {
-            width: 86px;
-            height: 86px;
-            border-radius: 28px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 34px;
-            color: #dff8ff;
-            background: linear-gradient(135deg, rgba(72, 194, 255, 0.16), rgba(84, 255, 208, 0.14));
-        }
-
-        .sv-device-box {
-            padding: 14px 16px;
-            margin-bottom: 12px;
-            border-radius: 18px;
-            background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(255,255,255,0.06);
-        }
-
-        .sv-device-box-top {
-            display: flex;
-            justify-content: space-between;
-            gap: 12px;
-            flex-wrap: wrap;
-            align-items: flex-start;
-        }
-
-        .sv-device-box-title {
-            font-size: 18px;
-            font-weight: 800;
-            color: #edf5ff;
-            margin: 0;
-        }
-
-        .sv-device-box-meta {
-            font-size: 14px;
-            color: #a9bad5;
-            margin-top: 4px;
-        }
-
-        .sv-device-box-actions {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        .sv-room-section-title {
-            margin: 0 0 12px;
-            color: #edf5ff;
-            font-size: 18px;
-            font-weight: 800;
-        }
-
-        @media (max-width: 1080px) {
-            .sv-room-page-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        @media (max-width: 720px) {
-            .sv-room-manage-top {
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            .sv-room-manage-actions {
-                justify-content: flex-start;
-            }
-
-            .sv-room-highlight {
-                align-items: flex-start;
-                flex-direction: column;
-            }
+        .sv-rooms-page .sv-device-switch.is-offline .sv-switch-track span {
+            transform: translateX(0);
         }
     </style>
-</head>
+@endpush
 
-<body class="sv-dashboard-body">
-    <div class="sv-app">
-        <aside class="sv-sidebar">
-            <div class="brand">
-                <div class="icon">
-                    <i class="bi bi-lightning-charge-fill"></i>
-                </div>
-                <span>SmartVolt</span>
+@section('system-status')
+    <span
+        class="sv-badge {{ $systemConnected ? 'sv-badge-success' : 'sv-badge-neutral' }}"
+        data-rooms-system-badge
+    >
+        <span class="sv-status-dot" aria-hidden="true"></span>
+        <span data-rooms-system-label>
+            {{ $systemConnected ? 'Terhubung' : 'Belum terhubung' }}
+        </span>
+    </span>
+@endsection
+
+@section('content')
+    <section
+        class="sv-room-summary-grid sv-room-summary-grid-three"
+        aria-label="Ringkasan ruangan dan perangkat"
+    >
+        <article class="sv-summary-card sv-summary-card--violet">
+            <x-feature-icon name="rooms" tone="violet" :size="19" variant="soft" class="sv-summary-icon" />
+            <div class="sv-summary-copy">
+                <span>Ruangan</span>
+                <strong data-total-rooms>{{ (int) ($stats['total_rooms'] ?? 0) }}</strong>
             </div>
+        </article>
 
-            <p>Energy command center for monitoring, device control, and electricity consumption insights.</p>
+        <article class="sv-summary-card sv-summary-card--blue">
+            <x-feature-icon name="plug" tone="blue" :size="19" variant="soft" class="sv-summary-icon" />
+            <div class="sv-summary-copy">
+                <span>Perangkat Terdaftar</span>
+                <strong data-total-devices>{{ (int) ($stats['total_devices'] ?? 0) }}</strong>
+            </div>
+        </article>
 
-            <nav class="sv-nav">
-                <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">
-                    <i class="bi bi-house-door-fill"></i>
-                    <span>Dashboard</span>
-                </a>
+        <article class="sv-summary-card sv-summary-card--green">
+            <x-feature-icon name="power" tone="green" :size="19" variant="soft" class="sv-summary-icon" />
+            <div class="sv-summary-copy">
+                <span>Perangkat Aktif</span>
+                <strong data-active-devices>{{ $activeDevicesDisplay }}</strong>
+            </div>
+        </article>
+    </section>
 
-                <a href="{{ route('rooms') }}" class="{{ request()->routeIs('rooms*') ? 'active' : '' }}">
-                    <i class="bi bi-grid-1x2-fill"></i>
-                    <span>Rooms</span>
-                </a>
-
-                <a href="{{ route('energy.history') }}" class="{{ request()->routeIs('energy.history') ? 'active' : '' }}">
-                    <i class="bi bi-bar-chart-fill"></i>
-                    <span>Energy History</span>
-                </a>
-
-                <a href="{{ route('settings') }}" class="{{ request()->routeIs('settings*') ? 'active' : '' }}">
-                    <i class="bi bi-gear-fill"></i>
-                    <span>Settings</span>
-                </a>
-            </nav>
-        </aside>
-
-        <main class="sv-main">
-            <header class="sv-topbar">
-                <div class="sv-topbar-inner">
-                    <div class="sv-topbar-left">
-                     
-
-                        <div>
-                            <h1 class="sv-page-title">SmartVolt Control Hub</h1>
-                            <p class="sv-page-sub">Hello, {{ auth()->user()->name ?? 'User' }}</p>
-                        </div>
-                    </div>
-
-                    <div class="sv-topbar-right">
-                        <div class="sv-action-cluster">
-                            @include('components.notification-bell')
-
-                            <form action="{{ route('logout') }}" method="POST" class="sv-logout-form">
-                                @csrf
-                                <button type="submit" class="sv-btn sv-logout-btn">
-                                    <i class="bi bi-box-arrow-right"></i>
-                                    <span>Logout</span>
-                                </button>
-                            </form>
-                        </div>
-                    </div>
+    @if($roomCollection->isEmpty())
+        <section class="sv-card">
+            <div class="sv-card-body">
+                <div class="sv-empty-state sv-empty-state-compact">
+                    <x-feature-icon name="rooms" tone="violet" :size="27" variant="soft" />
+                    <h3>Belum ada ruangan</h3>
+                    <a href="{{ route('technician.index') }}" class="sv-button sv-button-primary">Tambah ruangan</a>
                 </div>
-            </header>
+            </div>
+        </section>
+    @else
+        <section class="sv-room-grid sv-room-grid-three" aria-label="Daftar ruangan">
+            @foreach($roomCollection as $room)
+                @php
+                    $devices = collect($room['devices'] ?? []);
+                    $roomStatusAvailable = (bool) ($room['status_available'] ?? false);
+                    $roomActiveDevices = $room['active_devices'] ?? null;
+                    $roomActiveDisplay = $roomStatusAvailable
+                        && is_numeric($roomActiveDevices)
+                        && (int) $roomActiveDevices > 0
+                            ? (int) $roomActiveDevices
+                            : '—';
 
-            <section class="sv-shell">
-                @if(session('status'))
-                    <div class="sv-status-banner">
-                        <i class="bi bi-check-circle-fill"></i>
-                        {{ session('status') }}
-                    </div>
-                @endif
+                    $roomPower = $room['current_power'] ?? null;
+                    $connectionLabel = $room['connection_label'] ?? 'Belum terhubung';
+                    $onlineDevices = (int) ($room['online_devices'] ?? 0);
+                    $totalDevices = (int) ($room['total_devices'] ?? 0);
 
-                @if($errors->any())
-                    <div class="sv-error-banner">
-                        <i class="bi bi-exclamation-triangle-fill"></i>
-                        {{ $errors->first() }}
-                    </div>
-                @endif
+                    $connectionClass = $totalDevices === 0
+                        ? 'sv-badge-neutral'
+                        : ($onlineDevices === $totalDevices
+                            ? 'sv-badge-success'
+                            : ($onlineDevices > 0
+                                ? 'sv-badge-warning'
+                                : 'sv-badge-neutral'));
 
-                <div class="sv-hero">
-                    <div class="sv-hero-card sv-glass">
-                        <div>
-                            <div class="sv-live-chip">
-                                <span class="sv-live-dot"></span>
-                                Room management
-                            </div>
+                    $roomNameLower = strtolower((string) ($room['name'] ?? ''));
+                    $roomIcon = str_contains($roomNameLower, 'dapur') ? 'kitchen'
+                        : (str_contains($roomNameLower, 'kamar') ? 'bed'
+                        : (str_contains($roomNameLower, 'tamu') ? 'sofa'
+                        : (str_contains($roomNameLower, 'garasi') ? 'garage' : 'rooms')));
+                    $roomTone = $roomTones[$loop->index % count($roomTones)];
+                @endphp
 
-                            <h1>Organize, manage, and structure your smart home by room.</h1>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="sv-stats">
-                    <div class="sv-stat-card sv-glass rooms">
-                        <div class="label">Total Rooms</div>
-                        <div class="value">
-                            <i class="bi bi-grid-1x2-fill"></i>
-                            <span>{{ $rooms->count() }}</span>
-                        </div>
-                    </div>
-
-                    <div class="sv-stat-card sv-glass active">
-                        <div class="label">Connected Devices</div>
-                        <div class="value">
-                            <i class="bi bi-broadcast-pin"></i>
-                            <span>{{ $rooms->sum('devices_count') }}</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="sv-room-page-grid">
-                    <div class="sv-panel sv-glass">
-                        <div class="sv-panel-head">
+                <article class="sv-room-card sv-room-card--{{ $roomTone }}" data-room-card="{{ $room['id'] }}">
+                    <header class="sv-room-card-head">
+                        <div class="sv-room-card-title">
+                            <x-feature-icon :name="$roomIcon" :tone="$roomTone" :size="18" variant="soft" class="sv-room-icon" />
                             <div>
-                                <h3>Rooms</h3>
-                                <div class="sv-panel-sub">Active rooms registered in SmartVolt</div>
+                                <h3>{{ ucwords(strtolower((string) ($room['name'] ?? 'Tanpa nama'))) }}</h3>
+                                <p>
+                                    <span data-room-total-devices="{{ $room['id'] }}">{{ $totalDevices }}</span>
+                                    perangkat terdaftar ·
+                                    <span data-room-power="{{ $room['id'] }}">
+                                        {{ is_numeric($roomPower)
+                                            ? number_format((float) $roomPower, 1, ',', '.') . ' W'
+                                            : '— W' }}
+                                    </span>
+                                </p>
                             </div>
                         </div>
 
-                        @if($rooms->isEmpty())
-                            <div class="sv-empty">No rooms yet</div>
-                        @else
-                            <div class="sv-room-list">
-                                @foreach($rooms as $room)
-                                    <div class="sv-room-manage-card" id="room-card-{{ $room->id }}">
-                                        <div class="sv-room-manage-top">
-                                            <div
-                                                class="sv-room-manage-left sv-room-clickable"
-                                                onclick="toggleRoomDevices('{{ $room->id }}')"
-                                                title="Click to view and manage devices"
-                                            >
-                                                <div class="sv-room-manage-icon">
-                                                    <i class="bi bi-grid-1x2-fill"></i>
-                                                </div>
+                        <span
+                            class="sv-badge {{ $connectionClass }}"
+                            data-room-connection-badge="{{ $room['id'] }}"
+                        >
+                            <span class="sv-status-dot" aria-hidden="true"></span>
+                            <span data-room-connection-label="{{ $room['id'] }}">{{ $connectionLabel }}</span>
+                        </span>
+                    </header>
 
-                                                <div>
-                                                    <h4 class="sv-room-manage-title">{{ $room->name }}</h4>
-                                                    <div class="sv-room-manage-meta">
-                                                        {{ $room->devices_count ?? 0 }} connected device
-                                                    </div>
-                                                </div>
-                                            </div>
+                    <div class="sv-room-card-body">
+                        @forelse($devices as $device)
+                            @php
+                                $espOnline = (bool) ($device['esp_online'] ?? false);
+                                $statusAvailable = (bool) ($device['status_available'] ?? false);
+                                $commandPending = (bool) ($device['command_pending'] ?? false);
+                                $deviceOn = $statusAvailable && ($device['is_on'] ?? null) === true;
+                                $controlAvailable = $espOnline && $statusAvailable;
 
-                                            <div class="sv-room-manage-actions">
-                                                <button
-                                                    type="button"
-                                                    class="sv-mini-btn edit"
-                                                    onclick="toggleEditForm('edit-room-{{ $room->id }}')"
-                                                >
-                                                    <i class="bi bi-pencil-square"></i>
-                                                    Edit
-                                                </button>
+                                $deviceLabel = strtolower(($device['type'] ?? '') . ' ' . ($device['name'] ?? ''));
+                                $deviceIcon = str_contains($deviceLabel, 'kipas') || str_contains($deviceLabel, 'fan')
+                                    ? 'fan'
+                                    : (str_contains($deviceLabel, 'lampu') || str_contains($deviceLabel, 'light')
+                                        ? 'lightbulb'
+                                        : 'plug');
+                                $deviceTone = $deviceOn
+                                    ? 'green'
+                                    : ($deviceIcon === 'fan' ? 'cyan' : ($deviceIcon === 'lightbulb' ? 'amber' : 'blue'));
 
-                                                <form action="{{ route('rooms.destroy', $room->id) }}" method="POST" onsubmit="return confirm('Delete this room?')">
-                                                    @csrf
-                                                    @method('DELETE')
+                                $statusMessage = $device['status_message']
+                                    ?? (!$espOnline
+                                        ? 'Belum terhubung ke SmartVolt'
+                                        : (!$statusAvailable
+                                            ? 'Menunggu pembaruan status'
+                                            : ($commandPending
+                                                ? 'Perintah sedang diproses'
+                                                : ($deviceOn
+                                                    ? 'Perangkat sedang menyala'
+                                                    : 'Perangkat sedang mati'))));
 
-                                                    <button type="submit" class="sv-mini-btn delete">
-                                                        <i class="bi bi-trash-fill"></i>
-                                                        Delete
-                                                    </button>
-                                                </form>
-                                            </div>
-                                        </div>
+                                $switchLabel = !$controlAvailable
+                                    ? 'Mati'
+                                    : ($commandPending
+                                        ? 'Memproses'
+                                        : ($deviceOn ? 'Nyala' : 'Mati'));
 
-                                        <div id="manage-devices-{{ $room->id }}" class="sv-inline-edit">
-                                            <div style="margin-bottom: 20px;">
-                                                <h4 class="sv-room-section-title">Add Device to {{ $room->name }}</h4>
+                                $assistiveText = !$espOnline
+                                    ? ($device['name'] . ' belum terhubung ke SmartVolt')
+                                    : (!$statusAvailable
+                                        ? ('Status terbaru ' . $device['name'] . ' belum tersedia')
+                                        : ($commandPending
+                                            ? ('Perintah ' . $device['name'] . ' sedang diproses')
+                                            : (($deviceOn ? 'Matikan ' : 'Nyalakan ') . $device['name'])));
+                            @endphp
 
-                                                <form action="{{ route('devices.store') }}" method="POST" class="sv-form-stack">
-                                                    @csrf
-
-                                                    <input type="hidden" name="room_id" value="{{ $room->id }}">
-
-                                                    <div class="sv-form-group">
-                                                        <label class="sv-form-label">Device Name</label>
-                                                        <input
-                                                            type="text"
-                                                            name="name"
-                                                            class="sv-form-input"
-                                                            placeholder="Example: Main Light"
-                                                            required
-                                                        >
-                                                    </div>
-
-                                                    <div class="sv-form-group">
-                                                        <label class="sv-form-label">Device Key</label>
-                                                        <input
-                                                            type="text"
-                                                            name="esp32_device_id"
-                                                            class="sv-form-input"
-                                                            placeholder="Example: 2"
-                                                            value="{{ old('esp32_device_id') }}"
-                                                            required
-                                                        >
-                                                        <div class="sv-form-helper">
-                                                            Device Key digunakan untuk kontrol relay ESP32, contoh: 2 atau 4.
-                                                        </div>
-                                                    </div>
-
-                                                    <div class="sv-form-group">
-                                                        <label class="sv-form-label">Sensor ID</label>
-                                                        <input
-                                                            type="text"
-                                                            name="esp_unit_id"
-                                                            class="sv-form-input"
-                                                            placeholder="Example: SV-001"
-                                                            value="{{ old('esp_unit_id') }}"
-                                                        >
-                                                        <div class="sv-form-helper">
-                                                            Sensor ID harus sama dengan unitId di kode Arduino agar terbaca di Energy History.
-                                                        </div>
-                                                    </div>
-
-                                                    <button type="submit" class="sv-primary-btn">
-                                                        <i class="bi bi-plus-circle-fill"></i>
-                                                        Add Device
-                                                    </button>
-                                                </form>
-                                            </div>
-
-                                            <div style="border-top:1px solid rgba(255,255,255,0.06); padding-top:16px;">
-                                                <h4 class="sv-room-section-title">Device List</h4>
-
-                                                @forelse($room->devices as $device)
-                                                    <div class="sv-device-box">
-                                                        <div class="sv-device-box-top">
-                                                            <div>
-                                                                <h5 class="sv-device-box-title">{{ $device->name }}</h5>
-                                                                <div class="sv-device-box-meta">
-                                                                    Key: {{ $device->esp32_device_id ?: '-' }}
-                                                                </div>
-                                                                <div class="sv-device-box-meta">
-                                                                    Sensor ID: {{ $device->esp_unit_id ?: '-' }}
-                                                                </div>
-                                                            </div>
-
-                                                            <div class="sv-device-box-actions">
-                                                                <button
-                                                                    type="button"
-                                                                    class="sv-mini-btn {{ $device->status ? 'toggle-on' : 'toggle-off' }}"
-                                                                    data-status="{{ $device->status ? 'ON' : 'OFF' }}"
-                                                                    data-toggle-url="{{ route('devices.toggle', $device->id) }}"
-                                                                    data-room-id="{{ $room->id }}"
-                                                                    onclick="toggleDeviceRelay(this)"
-                                                                >
-                                                                    <span class="sv-status-dot"></span>
-                                                                    {{ $device->status ? 'ON' : 'OFF' }}
-                                                                </button>
-
-                                                                <button
-                                                                    type="button"
-                                                                    class="sv-mini-btn edit"
-                                                                    onclick="toggleEditForm('edit-device-{{ $device->id }}')"
-                                                                >
-                                                                    <i class="bi bi-pencil-square"></i>
-                                                                    Edit
-                                                                </button>
-
-                                                                <form action="{{ route('devices.destroy', $device->id) }}" method="POST" onsubmit="return confirm('Delete this device?')">
-                                                                    @csrf
-                                                                    @method('DELETE')
-
-                                                                    <button type="submit" class="sv-mini-btn delete">
-                                                                        <i class="bi bi-trash-fill"></i>
-                                                                        Delete
-                                                                    </button>
-                                                                </form>
-                                                            </div>
-                                                        </div>
-
-                                                        <div id="edit-device-{{ $device->id }}" class="sv-inline-edit" style="margin-top:14px;">
-                                                            <form action="{{ route('devices.update', $device->id) }}" method="POST" class="sv-form-stack">
-                                                                @csrf
-                                                                @method('PUT')
-
-                                                                <div class="sv-form-group">
-                                                                    <label class="sv-form-label">Device Name</label>
-                                                                    <input
-                                                                        type="text"
-                                                                        name="name"
-                                                                        class="sv-form-input"
-                                                                        value="{{ $device->name }}"
-                                                                        required
-                                                                    >
-                                                                </div>
-
-                                                                <div class="sv-form-group">
-                                                                    <label class="sv-form-label">Device Key</label>
-                                                                    <input
-                                                                        type="text"
-                                                                        name="esp32_device_id"
-                                                                        class="sv-form-input"
-                                                                        value="{{ $device->esp32_device_id }}"
-                                                                        placeholder="Example: 2"
-                                                                        required
-                                                                    >
-                                                                    <div class="sv-form-helper">
-                                                                        Device Key digunakan untuk kontrol relay ESP32.
-                                                                    </div>
-                                                                </div>
-
-                                                                <div class="sv-form-group">
-                                                                    <label class="sv-form-label">Sensor ID</label>
-                                                                    <input
-                                                                        type="text"
-                                                                        name="esp_unit_id"
-                                                                        class="sv-form-input"
-                                                                        value="{{ $device->esp_unit_id }}"
-                                                                        placeholder="Example: SV-001"
-                                                                    >
-                                                                    <div class="sv-form-helper">
-                                                                        Sensor ID harus sama dengan unitId di kode Arduino.
-                                                                    </div>
-                                                                </div>
-
-                                                                <div class="sv-form-actions">
-                                                                    <button type="submit" class="sv-primary-btn">
-                                                                        <i class="bi bi-check2-circle"></i>
-                                                                        Save Changes
-                                                                    </button>
-
-                                                                    <button
-                                                                        type="button"
-                                                                        class="sv-secondary-btn"
-                                                                        onclick="toggleEditForm('edit-device-{{ $device->id }}')"
-                                                                    >
-                                                                        <i class="bi bi-x-circle"></i>
-                                                                        Close
-                                                                    </button>
-                                                                </div>
-                                                            </form>
-                                                        </div>
-                                                    </div>
-                                                @empty
-                                                    <div class="sv-empty">No devices in this room yet</div>
-                                                @endforelse
-                                            </div>
-                                        </div>
-
-                                        <div id="edit-room-{{ $room->id }}" class="sv-inline-edit">
-                                            <form action="{{ route('rooms.update', $room->id) }}" method="POST" class="sv-form-stack">
-                                                @csrf
-                                                @method('PUT')
-
-                                                <div class="sv-form-group">
-                                                    <label class="sv-form-label">Room Name</label>
-                                                    <input
-                                                        type="text"
-                                                        name="name"
-                                                        class="sv-form-input"
-                                                        value="{{ $room->name }}"
-                                                        required
-                                                    >
-                                                </div>
-
-                                                <div class="sv-form-actions">
-                                                    <button type="submit" class="sv-primary-btn">
-                                                        <i class="bi bi-check2-circle"></i>
-                                                        Save Changes
-                                                    </button>
-
-                                                    <button
-                                                        type="button"
-                                                        class="sv-secondary-btn"
-                                                        onclick="toggleEditForm('edit-room-{{ $room->id }}')"
-                                                    >
-                                                        <i class="bi bi-x-circle"></i>
-                                                        Close
-                                                    </button>
-                                                </div>
-                                            </form>
-                                        </div>
+                            <div class="sv-device-row" data-device-row="{{ $device['id'] }}">
+                                <div class="sv-device-main">
+                                    <x-feature-icon :name="$deviceIcon" :tone="$deviceTone" :size="16" variant="soft" class="sv-device-icon" />
+                                    <div class="sv-device-copy">
+                                        <strong>{{ $device['name'] }}</strong>
+                                        <span data-device-status="{{ $device['id'] }}">{{ $statusMessage }}</span>
                                     </div>
-                                @endforeach
-                            </div>
-                        @endif
-                    </div>
-
-                    <div class="sv-panel sv-glass">
-                        <div class="sv-panel-head">
-                            <div>
-                                <h3>Add Room</h3>
-                                <div class="sv-panel-sub">Add a new room to group electrical devices</div>
-                            </div>
-                        </div>
-
-                        <div class="sv-form-card">
-                            <div class="sv-room-highlight">
-                                <div class="sv-room-highlight-icon">
-                                    <i class="bi bi-house-add-fill"></i>
-                                </div>
-                            </div>
-
-                            <div class="sv-form-helper">
-                                Use clear room names such as <strong>Living Room</strong>, <strong>Bedroom</strong>, or <strong>Kitchen</strong> to make device management easier.
-                            </div>
-
-                            <form action="{{ route('rooms.store') }}" method="POST" class="sv-form-stack">
-                                @csrf
-
-                                <div class="sv-form-group">
-                                    <label class="sv-form-label">Room Name</label>
-                                    <input
-                                        type="text"
-                                        name="name"
-                                        class="sv-form-input"
-                                        placeholder="Example: Living Room"
-                                        value="{{ old('name') }}"
-                                        required
-                                    >
                                 </div>
 
-                                <button type="submit" class="sv-primary-btn">
-                                    <i class="bi bi-plus-circle-fill"></i>
-                                    Add Room
+                                <button
+                                    type="button"
+                                    class="sv-device-switch sv-device-power-button {{ $deviceOn ? 'is-on' : '' }} {{ ! $controlAvailable ? 'is-offline' : '' }} {{ $commandPending && $controlAvailable ? 'is-loading' : '' }}"
+                                    data-device-toggle
+                                    data-device-id="{{ $device['id'] }}"
+                                    data-room-id="{{ $room['id'] }}"
+                                    data-url="{{ route('devices.toggle', $device['id']) }}"
+                                    data-current-state="{{ $controlAvailable ? ($deviceOn ? 'on' : 'off') : 'off' }}"
+                                    data-status-available="{{ $statusAvailable ? 'true' : 'false' }}"
+                                    data-esp-online="{{ $espOnline ? 'true' : 'false' }}"
+                                    aria-pressed="{{ $deviceOn ? 'true' : 'false' }}"
+                                    aria-label="{{ $assistiveText }}"
+                                    title="{{ $assistiveText }}"
+                                    {{ ! $controlAvailable || $commandPending ? 'disabled' : '' }}
+                                >
+                                    <span data-switch-label>{{ $switchLabel }}</span>
+                                    <span class="sv-switch-track" aria-hidden="true"><span></span></span>
                                 </button>
-                            </form>
-                        </div>
+                            </div>
+                        @empty
+                            <div class="sv-empty-state sv-empty-state-compact">
+                                <x-feature-icon name="plug" tone="cyan" :size="23" variant="soft" />
+                                <h3>Belum ada perangkat</h3>
+                                <a href="{{ route('technician.index') }}#room-{{ $room['id'] }}" class="sv-text-button">Tambah perangkat</a>
+                            </div>
+                        @endforelse
                     </div>
-                </div>
-            </section>
 
-            <nav class="sv-bottomnav">
-                <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">
-                    <i class="bi bi-house-door-fill"></i>
-                    <span>Beranda</span>
-                </a>
+                    <footer class="sv-room-card-foot">
+                        <span>
+                            Perangkat aktif:
+                            <strong data-room-active-count="{{ $room['id'] }}">{{ $roomActiveDisplay }}</strong>
+                            · {{ $totalDevices }} perangkat terdaftar
+                        </span>
+                    </footer>
+                </article>
+            @endforeach
+        </section>
+    @endif
 
-                <a href="{{ route('energy.history') }}" class="{{ request()->routeIs('energy.history') ? 'active' : '' }}">
-                    <i class="bi bi-bar-chart-fill"></i>
-                    <span>Listrik</span>
-                </a>
+    <script type="application/json" id="smartvolt-rooms-data">{!! json_encode([
+        'endpoint' => route('rooms.data'),
+        'refreshInterval' => (int) ($refreshInterval ?? 30),
+        'stats' => $stats,
+        'system' => $system,
+        'rooms' => $roomPageData ?? [],
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) !!}</script>
+@endsection
 
-                <a href="{{ route('settings') }}" class="{{ request()->routeIs('settings*') ? 'active' : '' }}">
-                    <i class="bi bi-gear-fill"></i>
-                    <span>Pengaturan</span>
-                </a>
-            </nav>
-        </main>
-    </div>
-
-    <script>
-        function toggleDeviceRelay(button) {
-            const toggleUrl = button.dataset.toggleUrl;
-            const roomId = button.dataset.roomId;
-            const previousStatus = button.dataset.status;
-
-            if (!toggleUrl) {
-                alert('Device toggle URL was not found.');
-                return;
-            }
-
-            button.disabled = true;
-            button.innerHTML = '<span class="sv-status-dot"></span> Loading...';
-
-            const body = new URLSearchParams();
-            body.append('open_room_id', roomId);
-
-            fetch(toggleUrl, {
-                method: 'POST',
-                headers: {
-                    'X-CSRF-TOKEN': '{{ csrf_token() }}',
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'Accept': 'application/json'
-                },
-                body: body.toString()
-            })
-            .then(function (response) {
-                return response.json().then(function (data) {
-                    if (!response.ok) {
-                        throw new Error(data.message || 'HTTP ' + response.status);
-                    }
-
-                    return data;
-                });
-            })
-            .then(function (data) {
-                if (!data.success) {
-                    throw new Error(data.message || 'Failed to change device status.');
-                }
-
-                const newStatus = String(data.status || '').toUpperCase();
-
-                if (newStatus === 'ON' || newStatus === 'OFF') {
-                    updateButtonStatus(button, newStatus);
-                } else {
-                    updateButtonStatus(button, previousStatus);
-                }
-
-                console.log('Device controlled successfully through the Laravel backend.');
-                console.log('MQTT Topic:', data.mqtt_topic || '-');
-                console.log('MQTT Payload:', data.mqtt_payload || '-');
-            })
-            .catch(function (error) {
-                console.error('Failed to toggle device:', error);
-                alert(error.message || 'Failed to send device command.');
-                updateButtonStatus(button, previousStatus);
-            })
-            .finally(function () {
-                button.disabled = false;
-            });
-        }
-
-        function updateButtonStatus(button, status) {
-            button.dataset.status = status;
-
-            if (status === 'ON') {
-                button.classList.remove('toggle-off');
-                button.classList.add('toggle-on');
-                button.innerHTML = '<span class="sv-status-dot"></span> ON';
-            } else {
-                button.classList.remove('toggle-on');
-                button.classList.add('toggle-off');
-                button.innerHTML = '<span class="sv-status-dot"></span> OFF';
-            }
-        }
-
-        function toggleEditForm(id) {
-            const form = document.getElementById(id);
-
-            if (form) {
-                form.classList.toggle('show');
-            }
-        }
-
-        function toggleRoomDevices(roomId) {
-            const target = document.getElementById('manage-devices-' + roomId);
-            const targetCard = document.getElementById('room-card-' + roomId);
-
-            if (!target || !targetCard) {
-                return;
-            }
-
-            const allPanels = document.querySelectorAll('[id^="manage-devices-"]');
-            const allCards = document.querySelectorAll('[id^="room-card-"]');
-
-            const isOpen = target.classList.contains('show');
-
-            allPanels.forEach(function (panel) {
-                panel.classList.remove('show');
-            });
-
-            allCards.forEach(function (card) {
-                card.classList.remove('active-room');
-            });
-
-            if (!isOpen) {
-                target.classList.add('show');
-                targetCard.classList.add('active-room');
-
-                setTimeout(function () {
-                    target.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'nearest'
-                    });
-                }, 120);
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', function () {
-            const openRoomId = "{{ session('open_room_id') }}";
-
-            if (openRoomId !== "") {
-                toggleRoomDevices(openRoomId);
-            }
-        });
-    </script>
-</body>
-</html>
+@push('scripts')
+    <script src="{{ asset('assets/js/smartvolt-rooms.js') }}?v=20260803-v3" defer></script>
+@endpush

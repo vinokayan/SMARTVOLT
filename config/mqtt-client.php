@@ -5,6 +5,268 @@ declare(strict_types=1);
 use PhpMqtt\Client\MqttClient;
 use PhpMqtt\Client\Repositories\MemoryRepository;
 
+/*
+|--------------------------------------------------------------------------
+| Helper konfigurasi
+|--------------------------------------------------------------------------
+|
+| Variabel opsional dari .env dinormalisasi menjadi null ketika kosong.
+| Ini penting karena php-mqtt/client tidak menerima username kosong atau
+| username yang hanya berisi spasi.
+|
+*/
+
+$nullableEnvString = static function (string $key): ?string {
+    $value = env($key);
+
+    if ($value === null) {
+        return null;
+    }
+
+    $value = trim((string) $value);
+
+    return $value !== '' ? $value : null;
+};
+
+/*
+|--------------------------------------------------------------------------
+| Konfigurasi bersama
+|--------------------------------------------------------------------------
+*/
+
+$mqttHost = $nullableEnvString('MQTT_HOST') ?? '127.0.0.1';
+
+$mqttPort = max(
+    1,
+    min(
+        65535,
+        (int) env('MQTT_PORT', 1883)
+    )
+);
+
+$mqttLoggingEnabled = (bool) env(
+    'MQTT_ENABLE_LOGGING',
+    false
+);
+
+$mqttLogChannel = $nullableEnvString(
+    'MQTT_LOG_CHANNEL'
+);
+
+$listenerClientId = $nullableEnvString(
+    'MQTT_LISTENER_CLIENT_ID'
+) ?? 'smartvolt-laravel-listener-main';
+
+/*
+|--------------------------------------------------------------------------
+| Autentikasi MQTT
+|--------------------------------------------------------------------------
+|
+| Ketika username tidak tersedia, username dan password harus null.
+| Jangan mengirim string kosong ke library MQTT.
+|
+*/
+
+$mqttUsername = $nullableEnvString(
+    'MQTT_AUTH_USERNAME'
+);
+
+$mqttPassword = null;
+
+if ($mqttUsername !== null) {
+    $password = env('MQTT_AUTH_PASSWORD');
+
+    $mqttPassword = $password !== null
+        ? (string) $password
+        : null;
+}
+
+$authenticationSettings = [
+    'username' => $mqttUsername,
+    'password' => $mqttPassword,
+];
+
+/*
+|--------------------------------------------------------------------------
+| TLS
+|--------------------------------------------------------------------------
+*/
+
+$tlsSettings = [
+    'enabled' => (bool) env(
+        'MQTT_TLS_ENABLED',
+        false
+    ),
+
+    'allow_self_signed_certificate' => (bool) env(
+        'MQTT_TLS_ALLOW_SELF_SIGNED_CERT',
+        false
+    ),
+
+    'verify_peer' => (bool) env(
+        'MQTT_TLS_VERIFY_PEER',
+        true
+    ),
+
+    'verify_peer_name' => (bool) env(
+        'MQTT_TLS_VERIFY_PEER_NAME',
+        true
+    ),
+
+    'ca_file' => $nullableEnvString(
+        'MQTT_TLS_CA_FILE'
+    ),
+
+    'ca_path' => $nullableEnvString(
+        'MQTT_TLS_CA_PATH'
+    ),
+
+    'client_certificate_file' => $nullableEnvString(
+        'MQTT_TLS_CLIENT_CERT_FILE'
+    ),
+
+    'client_certificate_key_file' => $nullableEnvString(
+        'MQTT_TLS_CLIENT_CERT_KEY_FILE'
+    ),
+
+    'client_certificate_key_passphrase' => $nullableEnvString(
+        'MQTT_TLS_CLIENT_KEY_PASSPHRASE'
+    ),
+
+    'alpn' => $nullableEnvString(
+        'MQTT_TLS_ALPN'
+    ),
+];
+
+/*
+|--------------------------------------------------------------------------
+| Last Will Laravel
+|--------------------------------------------------------------------------
+|
+| Last Will untuk status alat ditangani oleh ESP32. Koneksi Laravel tidak
+| perlu menerbitkan status perangkat ketika prosesnya terputus.
+|
+*/
+
+$disabledLastWill = [
+    'topic' => null,
+    'message' => null,
+    'quality_of_service' => 0,
+    'retain' => false,
+];
+
+/*
+|--------------------------------------------------------------------------
+| Pengaturan publisher
+|--------------------------------------------------------------------------
+*/
+
+$publisherConnectionSettings = [
+    'tls' => $tlsSettings,
+    'auth' => $authenticationSettings,
+    'last_will' => $disabledLastWill,
+
+    'connect_timeout' => max(
+        1,
+        (int) env(
+            'MQTT_PUBLISHER_CONNECT_TIMEOUT',
+            10
+        )
+    ),
+
+    'socket_timeout' => max(
+        1,
+        (int) env(
+            'MQTT_PUBLISHER_SOCKET_TIMEOUT',
+            15
+        )
+    ),
+
+    'resend_timeout' => max(
+        1,
+        (int) env(
+            'MQTT_PUBLISHER_RESEND_TIMEOUT',
+            5
+        )
+    ),
+
+    'keep_alive_interval' => max(
+        1,
+        (int) env(
+            'MQTT_PUBLISHER_KEEP_ALIVE_INTERVAL',
+            15
+        )
+    ),
+
+    /*
+     * Publisher digunakan singkat saat website mengirim perintah.
+     * Request berikutnya dapat membuat koneksi baru jika diperlukan.
+     */
+    'auto_reconnect' => [
+        'enabled' => false,
+        'max_reconnect_attempts' => 1,
+        'delay_between_reconnect_attempts' => 0,
+    ],
+];
+
+/*
+|--------------------------------------------------------------------------
+| Pengaturan listener
+|--------------------------------------------------------------------------
+*/
+
+$listenerConnectionSettings = [
+    'tls' => $tlsSettings,
+    'auth' => $authenticationSettings,
+    'last_will' => $disabledLastWill,
+
+    'connect_timeout' => max(
+        1,
+        (int) env(
+            'MQTT_LISTENER_CONNECT_TIMEOUT',
+            10
+        )
+    ),
+
+    /*
+     * Listener adalah proses jangka panjang.
+     * Socket timeout dibuat lebih panjang daripada keep-alive.
+     */
+    'socket_timeout' => max(
+        1,
+        (int) env(
+            'MQTT_LISTENER_SOCKET_TIMEOUT',
+            60
+        )
+    ),
+
+    'resend_timeout' => max(
+        1,
+        (int) env(
+            'MQTT_LISTENER_RESEND_TIMEOUT',
+            10
+        )
+    ),
+
+    'keep_alive_interval' => max(
+        1,
+        (int) env(
+            'MQTT_LISTENER_KEEP_ALIVE_INTERVAL',
+            15
+        )
+    ),
+
+    /*
+     * MQTTListen.php sudah menangani reconnect menggunakan
+     * perulangan sendiri.
+     */
+    'auto_reconnect' => [
+        'enabled' => false,
+        'max_reconnect_attempts' => 1,
+        'delay_between_reconnect_attempts' => 0,
+    ],
+];
+
 return [
 
     /*
@@ -12,112 +274,80 @@ return [
     | Default MQTT Connection
     |--------------------------------------------------------------------------
     |
-    | This setting defines the default MQTT connection returned when requesting
-    | a connection without name from the facade.
+    | Koneksi default digunakan oleh publisher website.
+    | Listener wajib memakai MQTT::connection('listener').
     |
     */
 
-    'default_connection' => 'default',
+    'default_connection' => 'publisher',
 
     /*
     |--------------------------------------------------------------------------
     | MQTT Connections
     |--------------------------------------------------------------------------
-    |
-    | These are the MQTT connections used by the application. You can also open
-    | an individual connection from the application itself, but all connections
-    | defined here can be accessed via name conveniently.
-    |
     */
 
     'connections' => [
 
-        'default' => [
+        /*
+        |--------------------------------------------------------------------------
+        | Publisher
+        |--------------------------------------------------------------------------
+        |
+        | Client ID dibiarkan null agar library menghasilkan Client ID acak.
+        | Dengan demikian koneksi website tidak mengambil alih listener.
+        |
+        */
 
-            // The host and port to which the client shall connect.
-            'host' => env('MQTT_HOST'),
-            'port' => env('MQTT_PORT', 1883),
+        'publisher' => [
+            'host' => $mqttHost,
+            'port' => $mqttPort,
 
-            // The MQTT protocol version used for the connection.
             'protocol' => MqttClient::MQTT_3_1,
 
-            // A specific client id to be used for the connection. If omitted,
-            // a random client id will be generated for each new connection.
-            'client_id' => env('MQTT_CLIENT_ID'),
+            'client_id' => null,
 
-            // Whether a clean session shall be used and requested by the client.
-            // A clean session will let the broker forget about subscriptions and
-            // queued messages when the client disconnects. Also, if available,
-            // data of a previous session will be deleted when connecting.
-            'use_clean_session' => env('MQTT_CLEAN_SESSION', true),
+            'use_clean_session' => true,
 
-            // Whether logging shall be enabled. The default logger will be used
-            // with the log level as configured.
-            'enable_logging' => env('MQTT_ENABLE_LOGGING', true),
+            'enable_logging' => $mqttLoggingEnabled,
 
-            // Which logging channel to use for logs produced by the MQTT client.
-            // If left empty, the default log channel or stack is being used.
-            'log_channel' => env('MQTT_LOG_CHANNEL', null),
+            'log_channel' => $mqttLogChannel,
 
-            // Defines which repository implementation shall be used. Currently,
-            // only a MemoryRepository is supported.
             'repository' => MemoryRepository::class,
 
-            // Additional settings used for the connection to the broker.
-            // All of these settings are entirely optional and have sane defaults.
-            'connection_settings' => [
-
-                // The TLS settings used for the connection. Must match the specified port.
-                'tls' => [
-                    'enabled' => env('MQTT_TLS_ENABLED', false),
-                    'allow_self_signed_certificate' => env('MQTT_TLS_ALLOW_SELF_SIGNED_CERT', false),
-                    'verify_peer' => env('MQTT_TLS_VERIFY_PEER', true),
-                    'verify_peer_name' => env('MQTT_TLS_VERIFY_PEER_NAME', true),
-                    'ca_file' => env('MQTT_TLS_CA_FILE'),
-                    'ca_path' => env('MQTT_TLS_CA_PATH'),
-                    'client_certificate_file' => env('MQTT_TLS_CLIENT_CERT_FILE'),
-                    'client_certificate_key_file' => env('MQTT_TLS_CLIENT_CERT_KEY_FILE'),
-                    'client_certificate_key_passphrase' => env('MQTT_TLS_CLIENT_CERT_KEY_PASSPHRASE'),
-                    'alpn' => env('MQTT_TLS_ALPN'),
-                ],
-
-                // Credentials used for authentication and authorization.
-                'auth' => [
-                    'username' => env('MQTT_AUTH_USERNAME'),
-                    'password' => env('MQTT_AUTH_PASSWORD'),
-                ],
-
-                // Can be used to declare a last will during connection. The last will
-                // is published by the broker when the client disconnects abnormally
-                // (e.g. in case of a disconnect).
-                'last_will' => [
-                    'topic' => env('MQTT_LAST_WILL_TOPIC'),
-                    'message' => env('MQTT_LAST_WILL_MESSAGE'),
-                    'quality_of_service' => env('MQTT_LAST_WILL_QUALITY_OF_SERVICE', 0),
-                    'retain' => env('MQTT_LAST_WILL_RETAIN', false),
-                ],
-
-                // The timeouts (in seconds) used for the connection. Some of these settings
-                // are only relevant when using the event loop of the MQTT client.
-                'connect_timeout' => env('MQTT_CONNECT_TIMEOUT', 60),
-                'socket_timeout' => env('MQTT_SOCKET_TIMEOUT', 5),
-                'resend_timeout' => env('MQTT_RESEND_TIMEOUT', 10),
-
-                // The interval (in seconds) in which the client will send a ping to the broker,
-                // if no other message has been sent.
-                'keep_alive_interval' => env('MQTT_KEEP_ALIVE_INTERVAL', 10),
-
-                // Additional settings for the optional auto-reconnect. The delay between reconnect attempts is in seconds.
-                'auto_reconnect' => [
-                    'enabled' => env('MQTT_AUTO_RECONNECT_ENABLED', false),
-                    'max_reconnect_attempts' => env('MQTT_AUTO_RECONNECT_MAX_RECONNECT_ATTEMPTS', 3),
-                    'delay_between_reconnect_attempts' => env('MQTT_AUTO_RECONNECT_DELAY_BETWEEN_RECONNECT_ATTEMPTS', 0),
-                ],
-
-            ],
-
+            'connection_settings' => $publisherConnectionSettings,
         ],
 
-    ],
+        /*
+        |--------------------------------------------------------------------------
+        | Listener
+        |--------------------------------------------------------------------------
+        |
+        | Digunakan oleh php artisan mqtt:listen untuk menerima status
+        | dan ACK dari ESP32.
+        |
+        */
 
+        'listener' => [
+            'host' => $mqttHost,
+            'port' => $mqttPort,
+
+            'protocol' => MqttClient::MQTT_3_1,
+
+            'client_id' => $listenerClientId,
+
+            'use_clean_session' => (bool) env(
+                'MQTT_LISTENER_CLEAN_SESSION',
+                true
+            ),
+
+            'enable_logging' => $mqttLoggingEnabled,
+
+            'log_channel' => $mqttLogChannel,
+
+            'repository' => MemoryRepository::class,
+
+            'connection_settings' => $listenerConnectionSettings,
+        ],
+    ],
 ];

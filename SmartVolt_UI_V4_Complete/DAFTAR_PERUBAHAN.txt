@@ -1,0 +1,12 @@
+SMARTVOLT UI V4
+
+1. Desain visual konsisten pada seluruh halaman.
+2. Kartu statistik berwarna lembut dengan ikon yang terlihat jelas.
+3. Sidebar desktop, drawer tablet, dan navigasi bawah HP.
+4. Grafik dan tabel responsif.
+5. Riwayat pemakaian memiliki kartu khusus untuk tampilan HP.
+6. Daftar perangkat memiliki pencarian langsung di browser.
+7. Kontrol relay memiliki status Nyala, Mati, dan Offline yang jelas.
+8. Pengaturan menggunakan tab Profil, Keamanan, Energi & Sistem, dan Mode Teknisi.
+9. Form, dialog, notifikasi, loading, error, dan empty state diselaraskan.
+10. Aksesibilitas ditingkatkan melalui focus state, label, teks status, dan reduced motion.

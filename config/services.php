@@ -7,10 +7,7 @@ return [
     | Third Party Services
     |--------------------------------------------------------------------------
     |
-    | This file is for storing the credentials for third party services such
-    | as Mailgun, Postmark, AWS and more. This file provides the de facto
-    | location for this type of information, allowing packages to have
-    | a conventional file to locate the various service credentials.
+    | Konfigurasi layanan pihak ketiga yang digunakan oleh aplikasi.
     |
     */
 
@@ -30,18 +27,43 @@ return [
 
     'slack' => [
         'notifications' => [
-            'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
-            'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
+            'bot_user_oauth_token' => env(
+                'SLACK_BOT_USER_OAUTH_TOKEN'
+            ),
+
+            'channel' => env(
+                'SLACK_BOT_USER_DEFAULT_CHANNEL'
+            ),
         ],
     ],
 
     /*
     |--------------------------------------------------------------------------
-    | SMARTVOLT IoT Service
+    | Google OAuth
     |--------------------------------------------------------------------------
     |
-    | API key untuk komunikasi ESP32 ke backend Laravel.
-    | Key ini dibaca dari file .env melalui IOT_API_KEY.
+    | Digunakan oleh Laravel Socialite untuk login dan registrasi
+    | menggunakan akun Google.
+    |
+    */
+
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+
+        'redirect' => env(
+            'GOOGLE_REDIRECT_URI',
+            'http://127.0.0.1:8000/auth/google/callback'
+        ),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | SmartVolt IoT Service
+    |--------------------------------------------------------------------------
+    |
+    | API key untuk komunikasi ESP32 dengan backend Laravel.
     |
     */
 

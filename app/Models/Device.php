@@ -18,10 +18,24 @@ class Device extends Model
         'esp32_device_id',
         'esp_unit_id',
         'status',
+        'is_online',
+        'last_seen_at',
+        'last_confirmed_at',
+        'last_command_at',
+        'last_command_id',
+        'last_ack_command_id',
+        'pending_state',
+        'last_command_success',
     ];
 
     protected $casts = [
         'status' => 'boolean',
+        'is_online' => 'boolean',
+        'pending_state' => 'boolean',
+        'last_command_success' => 'boolean',
+        'last_seen_at' => 'datetime',
+        'last_confirmed_at' => 'datetime',
+        'last_command_at' => 'datetime',
     ];
 
     public function room()

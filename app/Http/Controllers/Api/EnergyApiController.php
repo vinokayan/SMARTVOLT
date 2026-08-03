@@ -316,6 +316,75 @@ class EnergyApiController extends Controller
         ]);
     }
 
+    public function acknowledge(Request $request, string $esp_unit_id)
+    {
+        $this->checkApiKey($request);
+
+        $validated = $request->validate([
+            'command_id' => ['nullable', 'string', 'max:100'],
+            'relay_code' => ['required', 'string', 'max:20'],
+            'requested_state' => ['nullable', 'boolean'],
+            'actual_state' => ['required', 'boolean'],
+            'success' => ['required', 'boolean'],
+            'message' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $relayCode = trim((string) $validated['relay_code']);
+        $commandId = trim((string) ($validated['command_id'] ?? ''));
+
+        $device = $this->deviceQueryForEsp($esp_unit_id)
+            ->where('relay_code', $relayCode)
+            ->first();
+
+        if (! $device) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Perangkat tidak ditemukan.',
+            ], 404);
+        }
+
+        $hasNewerPendingCommand = filled($device->last_command_id)
+            && $commandId !== ''
+            && (string) $device->last_command_id !== $commandId
+            && $device->pending_state !== null;
+
+        if ($hasNewerPendingCommand) {
+            $device->update([
+                'is_online' => true,
+                'last_seen_at' => now(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Konfirmasi lama diabaikan karena ada perintah yang lebih baru.',
+            ], 409);
+        }
+
+        $actualState = (bool) $validated['actual_state'];
+        $commandSuccess = (bool) $validated['success'];
+
+        $device->update([
+            'status' => $actualState,
+            'is_online' => true,
+            'last_seen_at' => now(),
+            'last_confirmed_at' => now(),
+            'last_ack_command_id' => $commandId !== '' ? $commandId : null,
+            'pending_state' => null,
+            'last_command_success' => $commandSuccess,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Status perangkat berhasil dikonfirmasi.',
+            'device_id' => $device->id,
+            'esp_unit_id' => $esp_unit_id,
+            'relay_code' => $relayCode,
+            'actual_state' => $actualState,
+            'command_success' => $commandSuccess,
+            'confirmed_at' => $device->fresh()->last_confirmed_at?->toIso8601String(),
+        ]);
+    }
+
     private function storeEnergyLog(
         EnergyMeter $meter,
         array $energyData,

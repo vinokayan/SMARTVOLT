@@ -1,0 +1,83 @@
+.sv-technician-page .sv-page-content {
+    padding-top: 18px;
+}
+
+.sv-technician-shell {
+    width: 100%;
+    max-width: 1180px;
+    margin: 0 auto;
+}
+
+.sv-technician-toolbar {
+    margin-bottom: 16px;
+}
+
+.sv-technician-toolbar > div {
+    min-width: 0;
+}
+
+.sv-technician-toolbar span {
+    max-width: 760px;
+}
+
+.sv-technician-summary {
+    margin-bottom: 16px;
+}
+
+.sv-technician-summary-card {
+    min-height: 96px;
+}
+
+.sv-technician-page .sv-card-header {
+    gap: 16px;
+}
+
+.sv-technician-page .sv-tech-room-heading > span:last-child {
+    min-width: 0;
+}
+
+.sv-technician-page .sv-tech-room-heading strong,
+.sv-technician-page .sv-tech-room-heading span {
+    overflow-wrap: anywhere;
+}
+
+.sv-technician-page .sv-tech-item-copy span {
+    line-height: 1.5;
+}
+
+.sv-technician-page .sv-technician-lock {
+    min-height: 360px;
+}
+
+@media (max-width: 760px) {
+    .sv-technician-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .sv-technician-toolbar > form {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .sv-technician-toolbar > form .sv-button {
+        width: 100%;
+    }
+
+    .sv-technician-summary {
+        grid-template-columns: 1fr;
+    }
+
+    .sv-technician-summary-card {
+        min-height: 82px;
+    }
+
+    .sv-technician-page .sv-card-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .sv-technician-page .sv-card-header .sv-button {
+        width: 100%;
+    }
+}

@@ -1,46 +1,64 @@
-<?php
+﻿<?php
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
+
 return new class extends Migration
 {
+    /**
+     * Menjalankan perubahan struktur database.
+     */
     public function up(): void
     {
         /*
-         * Kolom ini mungkin sudah ada pada project Anda. Pemeriksaan dibuat
-         * agar migration aman dijalankan pada struktur lama maupun baru.
+         * Tambahkan relay_code apabila belum tersedia.
+         *
+         * Tidak menggunakan after() agar migration tetap kompatibel
+         * dengan MySQL, MariaDB, dan SQLite.
          */
         if (! Schema::hasColumn('devices', 'relay_code')) {
-            Schema::table('devices', function (Blueprint $table) {
+            Schema::table('devices', function (Blueprint $table): void {
                 $table->string('relay_code', 50)
-                    ->nullable()
-                    ->after('device_key');
-            });
-        }
-
-        if (! Schema::hasColumn('devices', 'esp_unit_id')) {
-            Schema::table('devices', function (Blueprint $table) {
-                $table->string('esp_unit_id', 100)
-                    ->nullable()
-                    ->after('esp32_device_id');
+                    ->nullable();
             });
         }
 
         /*
-         * Versi lama menjadikan esp32_device_id unik. Aturan tersebut
-         * membuat satu ESP tidak dapat memiliki Relay 1 dan Relay 2.
+         * Tambahkan esp_unit_id apabila belum tersedia.
          */
-        foreach ($this->uniqueIndexesOnlyForEsp32DeviceId() as $indexName) {
-            Schema::table('devices', function (Blueprint $table) use ($indexName) {
-                $table->dropUnique($indexName);
+        if (! Schema::hasColumn('devices', 'esp_unit_id')) {
+            Schema::table('devices', function (Blueprint $table): void {
+                $table->string('esp_unit_id', 100)
+                    ->nullable();
             });
         }
 
-        if (! $this->indexExists('devices', 'devices_esp32_device_id_index')) {
-            Schema::table('devices', function (Blueprint $table) {
+        /*
+         * Versi lama menjadikan esp32_device_id unik.
+         * Aturan tersebut membuat satu ESP32 tidak dapat memiliki
+         * beberapa relay.
+         */
+        foreach ($this->uniqueIndexesOnlyForEsp32DeviceId() as $indexName) {
+            Schema::table(
+                'devices',
+                function (Blueprint $table) use ($indexName): void {
+                    $table->dropUnique($indexName);
+                }
+            );
+        }
+
+        /*
+         * esp32_device_id tetap diberi index biasa agar pencarian
+         * perangkat berdasarkan ESP32 tetap efisien.
+         */
+        if (! $this->indexExists(
+            'devices',
+            'devices_esp32_device_id_index'
+        )) {
+            Schema::table('devices', function (Blueprint $table): void {
                 $table->index(
                     'esp32_device_id',
                     'devices_esp32_device_id_index'
@@ -49,28 +67,33 @@ return new class extends Migration
         }
 
         /*
-         * Yang unik adalah pasangan ESP + channel relay, bukan ESP sendiri.
+         * Satu kombinasi ESP Unit ID dan relay_code hanya boleh
+         * dimiliki oleh satu perangkat.
          */
-        if (! $this->indexExists('devices', 'devices_esp_unit_relay_unique')) {
+        if (! $this->indexExists(
+            'devices',
+            'devices_esp_unit_relay_unique'
+        )) {
             $duplicates = DB::table('devices')
                 ->select(
                     'esp_unit_id',
                     'relay_code',
-                    DB::raw('COUNT(*) as total')
+                    DB::raw('COUNT(*) AS total')
                 )
                 ->whereNotNull('esp_unit_id')
                 ->whereNotNull('relay_code')
                 ->groupBy('esp_unit_id', 'relay_code')
-                ->having('total', '>', 1)
+                ->havingRaw('COUNT(*) > 1')
                 ->get();
 
             if ($duplicates->isNotEmpty()) {
-                throw new RuntimeException(
-                    'Migration dihentikan: terdapat data relay duplikat dengan kombinasi esp_unit_id dan relay_code yang sama.'
+                throw new \RuntimeException(
+                    'Migration dihentikan karena terdapat kombinasi '
+                    . 'esp_unit_id dan relay_code yang duplikat.'
                 );
             }
 
-            Schema::table('devices', function (Blueprint $table) {
+            Schema::table('devices', function (Blueprint $table): void {
                 $table->unique(
                     ['esp_unit_id', 'relay_code'],
                     'devices_esp_unit_relay_unique'
@@ -79,53 +102,62 @@ return new class extends Migration
         }
     }
 
+    /**
+     * Membatalkan perubahan migration.
+     */
     public function down(): void
     {
         /*
-         * Jangan mengembalikan unique index lama pada esp32_device_id,
-         * karena konfigurasi multi-relay yang sudah dibuat akan gagal.
+         * Unique index lama pada esp32_device_id tidak dikembalikan,
+         * karena dapat merusak konfigurasi multi-relay.
          */
-        if ($this->indexExists('devices', 'devices_esp_unit_relay_unique')) {
-            Schema::table('devices', function (Blueprint $table) {
-                $table->dropUnique('devices_esp_unit_relay_unique');
+        if ($this->indexExists(
+            'devices',
+            'devices_esp_unit_relay_unique'
+        )) {
+            Schema::table('devices', function (Blueprint $table): void {
+                $table->dropUnique(
+                    'devices_esp_unit_relay_unique'
+                );
             });
         }
     }
 
-    private function indexExists(string $table, string $indexName): bool
-    {
-        $result = DB::select(
-            "SHOW INDEX FROM `{$table}` WHERE Key_name = ?",
-            [$indexName]
-        );
-
-        return count($result) > 0;
+    /**
+     * Memeriksa keberadaan index secara lintas database.
+     */
+    private function indexExists(
+        string $table,
+        string $indexName
+    ): bool {
+        return collect(Schema::getIndexes($table))
+            ->contains(function (array $index) use ($indexName): bool {
+                return ($index['name'] ?? null) === $indexName;
+            });
     }
 
+    /**
+     * Mengambil semua unique index yang hanya menggunakan
+     * kolom esp32_device_id.
+     *
+     * @return array<int, string>
+     */
     private function uniqueIndexesOnlyForEsp32DeviceId(): array
     {
-        $rows = DB::select('SHOW INDEX FROM `devices`');
-        $indexes = [];
+        return collect(Schema::getIndexes('devices'))
+            ->filter(function (array $index): bool {
+                $isUnique = (bool) ($index['unique'] ?? false);
 
-        foreach ($rows as $row) {
-            $indexes[$row->Key_name][] = $row;
-        }
+                $columns = array_values(
+                    $index['columns'] ?? []
+                );
 
-        $result = [];
-
-        foreach ($indexes as $indexName => $indexRows) {
-            $isUnique = (int) $indexRows[0]->Non_unique === 0;
-            $columns = collect($indexRows)
-                ->sortBy('Seq_in_index')
-                ->pluck('Column_name')
-                ->values()
-                ->all();
-
-            if ($isUnique && $columns === ['esp32_device_id']) {
-                $result[] = $indexName;
-            }
-        }
-
-        return $result;
+                return $isUnique
+                    && $columns === ['esp32_device_id'];
+            })
+            ->pluck('name')
+            ->filter(fn (mixed $name): bool => is_string($name))
+            ->values()
+            ->all();
     }
 };

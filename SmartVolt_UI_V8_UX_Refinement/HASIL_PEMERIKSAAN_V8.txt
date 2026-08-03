@@ -1,0 +1,35 @@
+SMARTVOLT UI V8 — HASIL PEMERIKSAAN
+
+Total pemeriksaan: 29
+Berhasil: 29
+Gagal: 0
+
+[PASS] File tersedia: app/Http/Controllers/DashboardController.php
+[PASS] File tersedia: resources/views/layouts/app.blade.php
+[PASS] File tersedia: resources/views/dashboard.blade.php
+[PASS] File tersedia: resources/views/rooms.blade.php
+[PASS] File tersedia: public/assets/css/smartvolt-pro.css
+[PASS] File tersedia: public/assets/js/smartvolt-dashboard.js
+[PASS] File tersedia: public/assets/js/smartvolt-rooms.js
+[PASS] Dashboard controller memfilter ruangan kosong
+[PASS] Controller menyediakan jumlah perangkat online
+[PASS] Dashboard hanya memakai ruangan dengan perangkat
+[PASS] Judul grafik sudah Daya terbaru
+[PASS] Label grafik membedakan data historis terakhir
+[PASS] Kartu perangkat memakai istilah Perangkat menyala
+[PASS] Dashboard tidak lagi memakai judul 24 jam yang keliru
+[PASS] Dashboard menampilkan penjelasan status data terlambat
+[PASS] Ruangan kosong diberi status netral
+[PASS] Ringkasan ruangan memakai Total Perangkat
+[PASS] Footer ruangan membedakan menyala dan online
+[PASS] Ikon nonaktif sidebar dibuat lebih tenang
+[PASS] Empty state dipadatkan
+[PASS] CSS seimbang — {=314 }=314
+[PASS] Versi aset V8 digunakan
+[PASS] JS Dashboard memperbarui perangkat menyala online
+[PASS] Sintaks valid: DashboardController.php — No syntax errors detected in /mnt/data/SmartVolt_UI_V8_UX_Refinement/payload/app/Http/Controllers/DashboardController.php
+[PASS] Sintaks valid: smartvolt-dashboard.js
+[PASS] Sintaks valid: smartvolt-rooms.js
+[PASS] Installer V8 menunjuk payload
+[PASS] Installer membuat backup V8
+[PASS] CMD menjalankan installer V8
