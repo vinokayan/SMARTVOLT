@@ -51,14 +51,14 @@ const char* DEVICE_PRODUCT = "SmartVolt";
 // Sesudah firmware terpasang, konfigurasi dapat diubah tanpa coding ulang
 // melalui portal konfigurasi.
 // ============================================================================
-const char* DEFAULT_WIFI_SSID = "Galaxy A23 5G A6E2";
-const char* DEFAULT_WIFI_PASSWORD = "licv0357";
+const char* DEFAULT_WIFI_SSID = "dong";
+const char* DEFAULT_WIFI_PASSWORD = "karmelia";
 
-const char* DEFAULT_SERVER_HOST = "10.44.32.135";
+const char* DEFAULT_SERVER_HOST = "192.168.1.8";
 const uint16_t DEFAULT_SERVER_PORT = 8000;
 const char* DEFAULT_API_KEY = "smartvolt123";
 
-const char* DEFAULT_MQTT_HOST ="10.44.32.135";
+const char* DEFAULT_MQTT_HOST = "192.168.1.8";
 const uint16_t DEFAULT_MQTT_PORT = 1883;
 
 const char* DEFAULT_MQTT_USERNAME = "";
@@ -66,6 +66,7 @@ const char* DEFAULT_MQTT_PASSWORD = "";
 
 const char* DEFAULT_ESP_UNIT_ID = "2";
 const char* DEFAULT_METER_CODE = "main";
+
 const char* DEFAULT_OTA_PASSWORD = "";
 
 // ============================================================================

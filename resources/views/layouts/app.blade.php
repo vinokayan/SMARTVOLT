@@ -28,6 +28,46 @@
 
 
     @stack('styles')
+
+    {{--
+        Skip link disembunyikan pada tampilan normal dan hanya muncul
+        ketika menerima fokus dari keyboard (tombol Tab).
+    --}}
+    <style>
+        .sv-skip-link {
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            z-index: 100000;
+            display: inline-flex;
+            align-items: center;
+            min-height: 44px;
+            padding: 10px 16px;
+            border: 2px solid #0f172a;
+            border-radius: 10px;
+            color: #0f172a;
+            background: #ffffff;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+            font-weight: 700;
+            text-decoration: none;
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(calc(-100% - 28px));
+            transition:
+                transform 0.18s ease,
+                opacity 0.18s ease;
+        }
+
+        .sv-skip-link:focus,
+        .sv-skip-link:focus-visible {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(0);
+            outline: 3px solid rgba(37, 99, 235, 0.35);
+            outline-offset: 3px;
+        }
+    </style>
+
     @stack('head-scripts')
 </head>
 
@@ -177,7 +217,7 @@
             </div>
         </aside>
 
-        <main class="sv-app-main" id="main-content">
+        <main class="sv-app-main" id="main-content" tabindex="-1">
             <header class="sv-app-topbar">
                 <div class="sv-topbar-inner">
                     <div class="sv-topbar-left">
