@@ -1,4 +1,4 @@
-.pio/
+﻿.pio/
 .vscode/
 backup/
 
@@ -6,3 +6,4 @@ backup/
 *.elf
 *.map
 *.hex
+secrets.h
