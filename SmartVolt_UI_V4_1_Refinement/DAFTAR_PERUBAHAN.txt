@@ -1,9 +1,0 @@
-SMARTVOLT UI V4.1 — PERBAIKAN TATA LETAK
-
-- Posisi judul topbar dan konten disamakan pada seluruh halaman.
-- Teks keterangan, label, bantuan, dan isi form diperbesar.
-- Ukuran dan stroke ikon distandarkan.
-- Mode Teknisi memakai grid dua kolom pada desktop.
-- Pola card statistik berwarna dan card kerja putih diseragamkan.
-- Grid ruangan menjadi 3 kolom pada desktop besar, 2 kolom pada laptop, dan 1 kolom pada layar kecil.
-- Responsif tablet dan HP tetap dipertahankan.
