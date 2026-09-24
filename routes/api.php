@@ -8,58 +8,135 @@ use Illuminate\Support\Facades\Route;
 | SMARTVOLT API Routes
 |--------------------------------------------------------------------------
 |
-| Semua route pada file ini otomatis memakai prefix /api.
+| Semua route dalam file ini otomatis menggunakan prefix:
 |
-| Endpoint IoT utama:
+| /api
+|
+| Endpoint utama:
+|
 | POST /api/iot/telemetry
 | GET  /api/iot/esp/{esp_unit_id}/commands
 | POST /api/iot/esp/{esp_unit_id}/ack
+| GET  /api/energy/history/nilm
 |
 */
 
+
 Route::middleware('throttle:120,1')->group(function () {
+
 
     /*
     |--------------------------------------------------------------------------
-    | IoT API Baru
+    | IoT Telemetry API
     |--------------------------------------------------------------------------
     |
-    | Telemetry PZEM:
-    | POST /api/iot/telemetry
-    |
-    | ESP mengambil status relay:
-    | GET /api/iot/esp/2/commands
-    |
-    | ESP mengirim konfirmasi setelah relay fisik diterapkan:
-    | POST /api/iot/esp/2/ack
+    | Digunakan ESP32 + PZEM untuk mengirim data energi.
     |
     */
 
-    Route::post('/iot/telemetry', [EnergyApiController::class, 'store'])
-        ->name('api.iot.telemetry');
 
-    Route::get('/iot/esp/{esp_unit_id}/commands', [EnergyApiController::class, 'commands'])
-        ->name('api.iot.esp.commands');
+    Route::post(
+        '/iot/telemetry',
+        [EnergyApiController::class, 'store']
+    )
+    ->name('api.iot.telemetry');
 
-    Route::post('/iot/esp/{esp_unit_id}/ack', [EnergyApiController::class, 'acknowledge'])
-        ->name('api.iot.esp.ack');
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | ESP Relay Command API
+    |--------------------------------------------------------------------------
+    |
+    | ESP mengambil perintah relay dari server.
+    |
+    */
+
+
+    Route::get(
+        '/iot/esp/{esp_unit_id}/commands',
+        [EnergyApiController::class, 'commands']
+    )
+    ->name('api.iot.esp.commands');
+
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | ESP Relay Confirmation API
+    |--------------------------------------------------------------------------
+    |
+    | ESP mengirim status setelah relay berhasil diterapkan.
+    |
+    */
+
+
+    Route::post(
+        '/iot/esp/{esp_unit_id}/ack',
+        [EnergyApiController::class, 'acknowledge']
+    )
+    ->name('api.iot.esp.ack');
+
+
 
     /*
     |--------------------------------------------------------------------------
     | Legacy API
     |--------------------------------------------------------------------------
     |
-    | Endpoint lama tetap dipertahankan agar firmware ESP versi lama
-    | tidak langsung berhenti bekerja.
+    | Dipertahankan untuk kompatibilitas firmware lama.
     |
     */
 
-    Route::post('/energy/store', [EnergyApiController::class, 'store'])
-        ->name('api.energy.store');
 
-    Route::get('/device/{esp32_device_id}/command', [EnergyApiController::class, 'command'])
-        ->name('api.device.command');
+    Route::post(
+        '/energy/store',
+        [EnergyApiController::class, 'store']
+    )
+    ->name('api.energy.store');
 
-    Route::get('/unit/{esp32_device_id}/commands', [EnergyApiController::class, 'commands'])
-        ->name('api.unit.commands');
+
+    Route::get(
+        '/device/{esp32_device_id}/command',
+        [EnergyApiController::class, 'command']
+    )
+    ->name('api.device.command');
+
+
+    Route::get(
+        '/unit/{esp32_device_id}/commands',
+        [EnergyApiController::class, 'commands']
+    )
+    ->name('api.unit.commands');
+
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Energy History + NILM Dashboard API
+    |--------------------------------------------------------------------------
+    |
+    | Mengambil histori energi beserta hasil prediksi NILM.
+    |
+    | Contoh:
+    |
+    | Power:
+    | 22 W
+    |
+    | Detected:
+    | Lampu
+    |
+    | Confidence:
+    | 75%
+    |
+    */
+
+
+    Route::get(
+        '/energy/history/nilm',
+        [EnergyApiController::class, 'historyWithNilm']
+    )
+    ->name('api.energy.history.nilm');
+
+
 });

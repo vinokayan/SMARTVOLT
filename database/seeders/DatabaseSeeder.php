@@ -3,8 +3,8 @@
 namespace Database\Seeders;
 
 use App\Models\User;
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
+use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 
 class DatabaseSeeder extends Seeder
 {
@@ -15,11 +15,37 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        /*
+         * Default user untuk testing sistem.
+         */
+        User::updateOrCreate(
+            [
+                'email' => 'test@example.com',
+            ],
+            [
+                'name' => 'Test User',
+            ]
+        );
 
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
+
+        /*
+         * SMARTVOLT Master Data
+         *
+         * DeviceClassSeeder:
+         * - Lampu
+         * - Kipas
+         * - Laptop
+         * - Monitor
+         * - Printer
+         * - AC
+         * - Unknown
+         *
+         * AiModelSeeder:
+         * - NILM-LSTM
+         */
+        $this->call([
+            DeviceClassSeeder::class,
+            AiModelSeeder::class,
         ]);
     }
 }

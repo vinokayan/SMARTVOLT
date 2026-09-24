@@ -9,6 +9,8 @@ use App\Models\EnergyLog;
 use App\Models\EnergyMeter;
 use App\Models\Room;
 use App\Models\SystemSetting;
+use App\Services\NilmFeatureService;
+use App\Services\NilmService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -210,6 +212,36 @@ class EnergyApiController extends Controller
         if ($result['created']) {
             $this->cleanupOldEnergyLogsOncePerDay();
         }
+        /*
+ * Jalankan analisis NILM setelah telemetry berhasil tersimpan.
+ *
+ * AI tidak boleh mengganggu proses utama IoT.
+ * Jika prediksi gagal, EnergyLog tetap aman tersimpan.
+ */
+if ($result['created']) {
+
+    try {
+
+        app(NilmFeatureService::class)
+            ->generate($result['log']);
+
+
+        app(NilmService::class)
+            ->predict($result['log']);
+
+
+    } catch (\Throwable $exception) {
+
+        Log::error('NILM pipeline gagal.', [
+
+            'message' => $exception->getMessage(),
+
+            'energy_log_id' => $result['log']->id ?? null,
+
+        ]);
+
+    }
+}
 
         return response()->json([
             'success' => true,
@@ -728,4 +760,57 @@ class EnergyApiController extends Controller
             ? $timezone
             : self::DEFAULT_TIMEZONE;
     }
+
+    /**
+ * History Energy + NILM Prediction
+ */
+public function historyWithNilm(Request $request)
+{
+    $logs = EnergyLog::with([
+        'predictions.deviceClass'
+    ])
+    ->latest()
+    ->limit(50)
+    ->get();
+
+
+    return response()->json([
+        'success' => true,
+        'data' => $logs->map(function ($log) {
+
+            $prediction = $log->predictions->first();
+
+            return [
+                'id' => $log->id,
+
+                'observed_at' => $log->observed_at,
+
+                'voltage' => $log->voltage,
+
+                'current' => $log->current,
+
+                'power' => $log->power,
+
+                'energy' => $log->energy,
+
+                'power_factor' => $log->power_factor,
+
+
+                'nilm' => $prediction ? [
+
+                    'device' => $prediction->deviceClass->name ?? 'Unknown',
+
+                    'estimated_power' =>
+                        $prediction->estimated_power,
+
+                    'confidence' =>
+                        $prediction->confidence,
+
+                ] : null,
+
+            ];
+
+        })
+    ]);
+}
 }

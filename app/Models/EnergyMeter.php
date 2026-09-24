@@ -37,8 +37,9 @@ class EnergyMeter extends Model
     {
         return $this->hasMany(EnergyLog::class, 'energy_meter_id');
     }
-public function dailySummaries()
-{
-    return $this->hasMany(\App\Models\EnergyDailySummary::class);
-}
+
+    public function dailySummaries()
+    {
+        return $this->hasMany(EnergyDailySummary::class);
+    }
 }
