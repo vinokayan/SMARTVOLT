@@ -1,4 +1,4 @@
-#include <Arduino.h>
+﻿#include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <PubSubClient.h>
@@ -51,12 +51,13 @@ const char* DEVICE_PRODUCT = "SmartVolt";
 // Sesudah firmware terpasang, konfigurasi dapat diubah tanpa coding ulang
 // melalui portal konfigurasi.
 // ============================================================================
-const char* DEFAULT_WIFI_SSID = "dong";
-const char* DEFAULT_WIFI_PASSWORD = "karmelia";
+#include "secrets.h"
+const char* DEFAULT_WIFI_SSID = SECRET_WIFI_SSID;
+const char* DEFAULT_WIFI_PASSWORD = SECRET_WIFI_PASSWORD;
 
 const char* DEFAULT_SERVER_HOST = "192.168.1.8";
 const uint16_t DEFAULT_SERVER_PORT = 8000;
-const char* DEFAULT_API_KEY = "smartvolt123";
+const char* DEFAULT_API_KEY = SECRET_API_KEY;
 
 const char* DEFAULT_MQTT_HOST = "192.168.1.8";
 const uint16_t DEFAULT_MQTT_PORT = 1883;
@@ -542,7 +543,7 @@ String buildConfigurationPage(const String& message = "") {
   page += F("</div><button type='submit'>Simpan dan Restart</button></form>");
   page += F("<p><small>Firmware ");
   page += FIRMWARE_VERSION;
-  page += F(" · Setelah disimpan, hubungkan kembali HP ke jaringan Wi-Fi utama.</small></p>");
+  page += F(" Â· Setelah disimpan, hubungkan kembali HP ke jaringan Wi-Fi utama.</small></p>");
   page += F("</div></body></html>");
 
   return page;
